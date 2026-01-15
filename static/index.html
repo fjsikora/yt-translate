@@ -507,6 +507,212 @@
             color: var(--bg-deep);
         }
 
+        /* Video Info Panel */
+        .video-info-display {
+            display: none;
+            margin-top: 1.5rem;
+            padding: 1.5rem;
+            background: rgba(0, 255, 102, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+
+        .video-info-display.visible {
+            display: block;
+            animation: panel-reveal 0.5s ease-out;
+        }
+
+        .video-info-content {
+            display: flex;
+            gap: 1.5rem;
+            align-items: flex-start;
+        }
+
+        .video-thumbnail {
+            flex-shrink: 0;
+            width: 200px;
+            height: 112px;
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .video-thumbnail img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .video-thumbnail .thumbnail-placeholder {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: var(--text-dim);
+            font-size: 2rem;
+        }
+
+        .video-details {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .video-title {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--phosphor-green);
+            margin-bottom: 0.75rem;
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .video-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .video-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+
+        .video-meta-item .meta-label {
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .video-meta-item .meta-value {
+            color: var(--amber);
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 500;
+        }
+
+        .video-price-quote {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: rgba(255, 170, 0, 0.1);
+            border: 1px solid var(--amber-dim);
+            border-radius: 4px;
+            margin-top: 0.5rem;
+        }
+
+        .price-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-dim);
+        }
+
+        .price-value {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--amber);
+            text-shadow: 0 0 10px var(--amber-glow);
+        }
+
+        /* Preview Button */
+        .preview-btn {
+            display: block;
+            width: 100%;
+            margin-top: 1.5rem;
+            padding: 1.25rem 2rem;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            text-align: center;
+            background: transparent;
+            border: 2px solid var(--phosphor-green);
+            color: var(--phosphor-green);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-radius: 4px;
+        }
+
+        .preview-btn:hover:not(:disabled) {
+            background: var(--phosphor-green);
+            color: var(--bg-deep);
+            box-shadow: 0 0 30px var(--phosphor-green-glow);
+        }
+
+        .preview-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .preview-btn .free-badge {
+            display: inline-block;
+            margin-left: 0.5rem;
+            padding: 0.2rem 0.5rem;
+            background: var(--phosphor-green);
+            color: var(--bg-deep);
+            font-size: 0.6rem;
+            border-radius: 2px;
+            vertical-align: middle;
+        }
+
+        .preview-btn:hover:not(:disabled) .free-badge {
+            background: var(--bg-deep);
+            color: var(--phosphor-green);
+        }
+
+        /* Loading state for video info */
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--phosphor-green);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .video-info-loading {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            padding: 2rem;
+            color: var(--text-dim);
+            font-size: 0.85rem;
+        }
+
+        .video-info-loading.visible {
+            display: flex;
+        }
+
+        /* Responsive video info */
+        @media (max-width: 600px) {
+            .video-info-content {
+                flex-direction: column;
+            }
+
+            .video-thumbnail {
+                width: 100%;
+                height: auto;
+                aspect-ratio: 16/9;
+            }
+        }
+
         /* Hidden states */
         .hidden {
             display: none !important;
@@ -643,7 +849,7 @@
                             autocomplete="off"
                         >
                     </div>
-                    <button class="submit-btn" id="submit-btn" disabled>Acquire Signal</button>
+                    <button class="submit-btn" id="fetch-info-btn">Analyze Signal</button>
                 </div>
                 <div class="tos-checkbox">
                     <input type="checkbox" id="tos-agree">
@@ -653,11 +859,40 @@
                         I understand that translating copyrighted content without permission may violate copyright law.
                     </label>
                 </div>
+
+                <!-- Video Info Loading -->
+                <div class="video-info-loading" id="video-info-loading">
+                    <div class="loading-spinner"></div>
+                    <span>Analyzing video signal...</span>
+                </div>
+
+                <!-- Video Info Display -->
+                <div class="video-info-display" id="video-info-display">
+                    <div class="video-info-content">
+                        <div class="video-thumbnail" id="video-thumbnail">
+                            <span class="thumbnail-placeholder">▶</span>
+                            <img src="" alt="Video thumbnail" id="thumbnail-img" style="display: none;">
+                        </div>
+                        <div class="video-details">
+                            <h3 class="video-title" id="video-title">Video Title</h3>
+                            <div class="video-meta">
+                                <div class="video-meta-item">
+                                    <span class="meta-label">Duration:</span>
+                                    <span class="meta-value" id="video-duration">0:00</span>
+                                </div>
+                            </div>
+                            <div class="video-price-quote">
+                                <span class="price-label">Full Translation:</span>
+                                <span class="price-value" id="video-price">$0.00</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </section>
 
         <!-- Language Selection -->
-        <section class="panel" id="language-panel">
+        <section class="panel hidden" id="language-panel">
             <div class="panel-header">
                 <div class="status-light"></div>
                 <span class="panel-title">Output Channel</span>
@@ -666,6 +901,9 @@
                 <div class="language-grid" id="language-grid">
                     <!-- Languages loaded dynamically -->
                 </div>
+                <button class="preview-btn" id="preview-btn" disabled>
+                    Preview Translation <span class="free-badge">FREE</span>
+                </button>
             </div>
         </section>
 
@@ -808,12 +1046,14 @@
         let selectedLanguage = null;
         let currentJobId = null;
         let pollInterval = null;
+        let currentVideoInfo = null;
 
         // DOM Elements
         const urlInput = document.getElementById('youtube-url');
-        const submitBtn = document.getElementById('submit-btn');
+        const fetchInfoBtn = document.getElementById('fetch-info-btn');
         const tosCheckbox = document.getElementById('tos-agree');
         const languageGrid = document.getElementById('language-grid');
+        const languagePanel = document.getElementById('language-panel');
         const progressPanel = document.getElementById('progress-panel');
         const outputPanel = document.getElementById('output-panel');
         const errorPanel = document.getElementById('error-panel');
@@ -823,6 +1063,16 @@
         const progressText = document.getElementById('progress-text');
         const needle = document.getElementById('needle');
         const progressArc = document.getElementById('progress-arc');
+        const previewBtn = document.getElementById('preview-btn');
+
+        // Video Info Elements
+        const videoInfoLoading = document.getElementById('video-info-loading');
+        const videoInfoDisplay = document.getElementById('video-info-display');
+        const videoTitle = document.getElementById('video-title');
+        const videoDuration = document.getElementById('video-duration');
+        const videoPrice = document.getElementById('video-price');
+        const thumbnailImg = document.getElementById('thumbnail-img');
+        const thumbnailPlaceholder = document.querySelector('.thumbnail-placeholder');
 
         // Language flags
         const FLAGS = {
@@ -885,26 +1135,48 @@
             document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('selected'));
             btn.classList.add('selected');
             selectedLanguage = code;
-            updateSubmitButton();
+            updatePreviewButton();
         }
 
-        // Update submit button state
-        function updateSubmitButton() {
-            submitBtn.disabled = !tosCheckbox.checked || !selectedLanguage;
+        // Update preview button state
+        function updatePreviewButton() {
+            previewBtn.disabled = !selectedLanguage || !currentVideoInfo;
         }
 
         // Setup event listeners
         function setupEventListeners() {
-            submitBtn.addEventListener('click', startTranslation);
+            fetchInfoBtn.addEventListener('click', fetchVideoInfo);
+            previewBtn.addEventListener('click', startPreview);
             retryBtn.addEventListener('click', resetUI);
-            tosCheckbox.addEventListener('change', updateSubmitButton);
             urlInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter' && !submitBtn.disabled) startTranslation();
+                if (e.key === 'Enter') fetchVideoInfo();
+            });
+            // Handle paste event for convenience
+            urlInput.addEventListener('paste', () => {
+                // Small delay to let paste complete
+                setTimeout(fetchVideoInfo, 100);
             });
         }
 
-        // Start translation
-        async function startTranslation() {
+        // Format duration in MM:SS or HH:MM:SS
+        function formatDuration(seconds) {
+            const hrs = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+
+            if (hrs > 0) {
+                return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Format price in dollars
+        function formatPrice(cents) {
+            return `$${(cents / 100).toFixed(2)}`;
+        }
+
+        // Fetch video info from API
+        async function fetchVideoInfo() {
             const url = urlInput.value.trim();
 
             if (!url) {
@@ -912,8 +1184,92 @@
                 return;
             }
 
-            if (!selectedLanguage) {
-                showError('Please select a target language');
+            // Hide any previous info and show loading
+            hideError();
+            hideVideoInfo();
+            showVideoInfoLoading();
+            setFetchingState(true);
+
+            try {
+                const response = await fetch('/video-info', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ video_url: url })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to fetch video info');
+                }
+
+                const data = await response.json();
+                currentVideoInfo = data;
+                displayVideoInfo(data);
+                showLanguagePanel();
+            } catch (error) {
+                showError(error.message);
+                currentVideoInfo = null;
+            } finally {
+                hideVideoInfoLoading();
+                setFetchingState(false);
+            }
+        }
+
+        // Display video info
+        function displayVideoInfo(info) {
+            videoTitle.textContent = info.video_title || 'Unknown Title';
+            videoDuration.textContent = formatDuration(info.duration_seconds);
+            videoPrice.textContent = formatPrice(info.price_quote);
+
+            // Handle thumbnail
+            if (info.thumbnail_url) {
+                thumbnailImg.src = info.thumbnail_url;
+                thumbnailImg.style.display = 'block';
+                thumbnailPlaceholder.style.display = 'none';
+            } else {
+                thumbnailImg.style.display = 'none';
+                thumbnailPlaceholder.style.display = 'block';
+            }
+
+            videoInfoDisplay.classList.add('visible');
+        }
+
+        // Hide video info display
+        function hideVideoInfo() {
+            videoInfoDisplay.classList.remove('visible');
+        }
+
+        // Show video info loading
+        function showVideoInfoLoading() {
+            videoInfoLoading.classList.add('visible');
+        }
+
+        // Hide video info loading
+        function hideVideoInfoLoading() {
+            videoInfoLoading.classList.remove('visible');
+        }
+
+        // Show language panel
+        function showLanguagePanel() {
+            languagePanel.classList.remove('hidden');
+        }
+
+        // Hide language panel
+        function hideLanguagePanel() {
+            languagePanel.classList.add('hidden');
+        }
+
+        // Set fetching state
+        function setFetchingState(fetching) {
+            fetchInfoBtn.disabled = fetching;
+            fetchInfoBtn.textContent = fetching ? 'Analyzing...' : 'Analyze Signal';
+            urlInput.disabled = fetching;
+        }
+
+        // Start preview (placeholder - will be implemented in US-022)
+        async function startPreview() {
+            if (!currentVideoInfo || !selectedLanguage) {
+                showError('Please enter a video URL and select a language');
                 return;
             }
 
@@ -922,35 +1278,10 @@
                 return;
             }
 
-            // Reset UI
-            hideError();
-            hideOutput();
-            showProgress();
-            setProcessingState(true);
-            updateProgress(0, 'queued');
-
-            try {
-                const response = await fetch('/translate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        video_url: url,
-                        target_language: selectedLanguage
-                    })
-                });
-
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Translation failed');
-                }
-
-                const data = await response.json();
-                currentJobId = data.job_id;
-                startPolling();
-            } catch (error) {
-                showError(error.message);
-                setProcessingState(false);
-            }
+            // For now, this just shows we're ready for preview
+            // Full implementation will be in US-022
+            console.log('Starting preview for:', urlInput.value.trim(), 'in', selectedLanguage);
+            showError('Preview functionality coming soon! (US-022)');
         }
 
         // Poll for status
@@ -1055,7 +1386,7 @@
 
         // Show output panel
         function showOutput(url) {
-            setProcessingState(false);
+            setFetchingState(false);
             outputPanel.classList.add('visible');
             downloadBtn.href = url;
         }
@@ -1067,7 +1398,7 @@
 
         // Show error
         function showError(message) {
-            setProcessingState(false);
+            setFetchingState(false);
             errorMessage.textContent = message;
             errorPanel.classList.add('visible');
         }
@@ -1082,17 +1413,16 @@
             stopPolling();
             hideError();
             hideOutput();
+            hideVideoInfo();
+            hideLanguagePanel();
             progressPanel.classList.add('hidden');
-            setProcessingState(false);
+            setFetchingState(false);
             updateProgress(0, 'queued');
             currentJobId = null;
-        }
-
-        // Set processing state
-        function setProcessingState(processing) {
-            document.body.classList.toggle('processing', processing);
-            submitBtn.disabled = processing;
-            submitBtn.textContent = processing ? 'Processing...' : 'Acquire Signal';
+            currentVideoInfo = null;
+            selectedLanguage = null;
+            document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('selected'));
+            updatePreviewButton();
         }
 
         // Initialize on load
