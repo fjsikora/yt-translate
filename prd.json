@@ -385,8 +385,8 @@
         "Verify in browser using MCP Toolkit browser tools"
       ],
       "priority": 25,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 25. Implemented proceedToCheckout() with /checkout/create API call, Bearer token auth, loading state, and Stripe redirect."
     },
     {
       "id": "US-026",

@@ -711,3 +711,43 @@
 - sessionStorage preferred over localStorage for auth tokens (clears on browser close)
 - Form validation should provide specific error messages for each requirement
 - Modal close on overlay click needs to check e.target === authModalOverlay to avoid closing on content click
+
+## US-025: Frontend - Checkout Redirect - COMPLETE
+
+**Date:** 2026-01-15
+**Files changed:**
+- static/index.html (modified)
+
+**Implementation notes:**
+- Implemented `proceedToCheckout()` async function to handle checkout flow
+- Gets preview ID from `currentPreviewId` or `window.currentPreviewData`
+- Validates user is logged in before making API call
+- Shows loading state on "Get Full Video" button during API call:
+  - Button shows spinner and "Processing..." text
+  - Button is disabled during the request
+- Calls `POST /checkout/create` with:
+  - `Content-Type: application/json` header
+  - `Authorization: Bearer {access_token}` header
+  - Request body: `{ preview_id: string }`
+- On success (response with `checkout_url`):
+  - Stores `translation_job_id` in sessionStorage for success page
+  - Redirects browser to Stripe Checkout URL via `window.location.href`
+- Error handling:
+  - 401 errors: Clears auth state and shows auth modal with "Session expired" message
+  - Other errors: Shows user-friendly error message via `showError()`
+  - Resets loading state on any error
+- Added `setCheckoutLoading(loading)` helper function for button state management
+- Added `clearAuthState()` helper to clean up sessionStorage on auth failures
+
+**Acceptance criteria verification:**
+1. ✅ Get Full Video calls /checkout/create when logged in - proceedToCheckout() makes POST request with preview_id
+2. ✅ Redirects to Stripe Checkout URL - window.location.href = data.checkout_url
+3. ✅ Shows loading state during redirect - setCheckoutLoading(true) shows spinner and disables button
+4. ✅ Handles errors gracefully - Try/catch with showError(), special handling for 401
+5. ✅ Typecheck passes - Python and JavaScript syntax checks passed
+
+**Learnings:**
+- Store translation_job_id in sessionStorage for the success page to use
+- Handle 401 separately to re-prompt authentication rather than showing generic error
+- Loading state should disable the button AND show visual feedback (spinner)
+- Preview ID can come from multiple sources (currentPreviewId or window.currentPreviewData)
