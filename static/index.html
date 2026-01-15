@@ -1045,8 +1045,26 @@
         // State
         let selectedLanguage = null;
         let currentJobId = null;
+        let currentPreviewId = null;
         let pollInterval = null;
         let currentVideoInfo = null;
+        let sessionId = generateSessionId();
+
+        // Generate a unique session ID for guest users
+        function generateSessionId() {
+            // Check if we already have a session ID stored
+            let storedId = sessionStorage.getItem('preview_session_id');
+            if (storedId) return storedId;
+
+            // Generate a new UUID-like session ID
+            const id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+            sessionStorage.setItem('preview_session_id', id);
+            return id;
+        }
 
         // DOM Elements
         const urlInput = document.getElementById('youtube-url');
@@ -1266,7 +1284,7 @@
             urlInput.disabled = fetching;
         }
 
-        // Start preview (placeholder - will be implemented in US-022)
+        // Start preview - creates preview job and begins polling
         async function startPreview() {
             if (!currentVideoInfo || !selectedLanguage) {
                 showError('Please enter a video URL and select a language');
@@ -1278,13 +1296,109 @@
                 return;
             }
 
-            // For now, this just shows we're ready for preview
-            // Full implementation will be in US-022
-            console.log('Starting preview for:', urlInput.value.trim(), 'in', selectedLanguage);
-            showError('Preview functionality coming soon! (US-022)');
+            const videoUrl = urlInput.value.trim();
+            hideError();
+
+            // Disable UI during preview creation
+            setPreviewStartingState(true);
+
+            try {
+                const response = await fetch('/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        video_url: videoUrl,
+                        target_language: selectedLanguage,
+                        session_id: sessionId
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to start preview');
+                }
+
+                const data = await response.json();
+                currentPreviewId = data.preview_id;
+
+                // Show progress panel and start polling
+                showProgress();
+                updateProgress(0, 'pending');
+                startPreviewPolling();
+            } catch (error) {
+                showError(error.message);
+                setPreviewStartingState(false);
+            }
         }
 
-        // Poll for status
+        // Set UI state when preview is starting
+        function setPreviewStartingState(starting) {
+            previewBtn.disabled = starting;
+            previewBtn.innerHTML = starting
+                ? '<span class="loading-spinner"></span> Starting...'
+                : 'Preview Translation <span class="free-badge">FREE</span>';
+            document.body.classList.toggle('processing', starting);
+        }
+
+        // Poll for preview status
+        function startPreviewPolling() {
+            if (pollInterval) clearInterval(pollInterval);
+
+            pollInterval = setInterval(async () => {
+                if (!currentPreviewId) {
+                    stopPolling();
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`/preview/${currentPreviewId}?session_id=${encodeURIComponent(sessionId)}`);
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Failed to get preview status');
+                    }
+
+                    const data = await response.json();
+
+                    // Update progress display
+                    updateProgress(data.progress || 0, data.stage || 'pending');
+
+                    if (data.status === 'completed') {
+                        stopPolling();
+                        showPreviewComplete(data);
+                    } else if (data.status === 'failed') {
+                        stopPolling();
+                        showError(data.error || 'Preview processing failed');
+                        setPreviewStartingState(false);
+                    }
+                } catch (error) {
+                    console.error('Polling error:', error);
+                    // Don't stop polling on transient errors, just log them
+                }
+            }, 2000);
+        }
+
+        // Show preview complete state (placeholder for US-023 - Preview Player)
+        function showPreviewComplete(data) {
+            // Mark all stages complete
+            updateProgress(100, 'done');
+
+            // Store preview data for US-023
+            window.currentPreviewData = data;
+
+            // For now, show the output panel with a message
+            // Full preview player will be implemented in US-023
+            progressPanel.classList.add('hidden');
+            outputPanel.classList.add('visible');
+            document.querySelector('.success-message').textContent = 'PREVIEW READY';
+            downloadBtn.textContent = 'View Preview';
+            downloadBtn.href = data.preview_url || '#';
+            downloadBtn.target = '_blank';
+
+            setPreviewStartingState(false);
+        }
+
+        // Poll for status (legacy - kept for full translation jobs)
         function startPolling() {
             if (pollInterval) clearInterval(pollInterval);
 
@@ -1417,12 +1531,18 @@
             hideLanguagePanel();
             progressPanel.classList.add('hidden');
             setFetchingState(false);
-            updateProgress(0, 'queued');
+            setPreviewStartingState(false);
+            updateProgress(0, 'pending');
             currentJobId = null;
+            currentPreviewId = null;
             currentVideoInfo = null;
             selectedLanguage = null;
             document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('selected'));
             updatePreviewButton();
+            // Reset output panel text
+            document.querySelector('.success-message').textContent = 'TRANSMISSION COMPLETE';
+            downloadBtn.textContent = 'Download Video';
+            downloadBtn.removeAttribute('target');
         }
 
         // Initialize on load
