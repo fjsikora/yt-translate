@@ -20,5 +20,8 @@ deep-translator>=1.11.0
 # Data models
 pydantic>=2.0.0
 
+# Database
+supabase>=2.0.0
+
 # System requirement: ffmpeg must be installed separately
 # On Railway/Render, ffmpeg is available via nixpacks
