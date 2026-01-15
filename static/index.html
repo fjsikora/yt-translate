@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VIDEO TRANSLATOR // Signal Processing Terminal</title>
+    <title>UNIVERSAL VIDEO TRANSLATOR // Signal Processing Terminal</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -569,7 +569,7 @@
     <div class="container">
         <!-- Header -->
         <header class="header">
-            <h1 class="title">VIDEO TRANSLATOR</h1>
+            <h1 class="title">UNIVERSAL VIDEO TRANSLATOR</h1>
             <p class="subtitle">Signal Processing Terminal v1.0</p>
         </header>
 
@@ -586,7 +586,7 @@
                             type="text"
                             class="url-input"
                             id="youtube-url"
-                            placeholder="ENTER YOUTUBE URL..."
+                            placeholder="ENTER VIDEO URL (YouTube, Rumble, Vimeo, etc.)..."
                             autocomplete="off"
                         >
                     </div>
@@ -855,7 +855,7 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        youtube_url: url,
+                        video_url: url,
                         target_language: selectedLanguage
                     })
                 });
