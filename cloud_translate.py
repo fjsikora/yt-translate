@@ -140,6 +140,15 @@ class AuthResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class CheckoutRequest(BaseModel):
+    preview_id: str  # UUID of the preview job to purchase full translation for
+
+
+class CheckoutResponse(BaseModel):
+    checkout_url: str  # Payment provider Checkout URL for redirect
+    translation_job_id: str  # UUID of the created translation job
+
+
 # Lifespan for startup/shutdown
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1207,6 +1216,139 @@ async def oauth_callback(code: Optional[str] = None, error: Optional[str] = None
         raise HTTPException(
             status_code=500,
             detail=f"OAuth callback failed: {str(e)}"
+        )
+
+
+# --- Checkout Endpoints ---
+
+@app.post("/checkout/create", response_model=CheckoutResponse)
+async def create_checkout(
+    request: CheckoutRequest,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """
+    Create a Payment provider Checkout session for a full video translation.
+
+    Requires authentication. Creates a translation_job record with the price
+    calculated from the video duration, then creates a Payment provider Checkout session.
+
+    Args:
+        request: CheckoutRequest with preview_id
+        current_user: Authenticated user from JWT token
+
+    Returns:
+        CheckoutResponse with checkout_url for redirect and translation_job_id
+
+    Raises:
+        400: Invalid preview_id
+        403: Preview doesn't belong to user
+        404: Preview not found
+        500: Payment provider or database error
+    """
+    preview_id = request.preview_id
+
+    # Get the preview job
+    preview_job = db.get_preview_job(preview_id)
+    if not preview_job:
+        raise HTTPException(
+            status_code=404,
+            detail="Preview job not found"
+        )
+
+    # Verify preview is completed
+    if preview_job.get("status") != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Preview is not ready. Status: {preview_job.get('status')}"
+        )
+
+    # Get video info to calculate price
+    video_url = preview_job.get("video_url")
+    if not video_url:
+        raise HTTPException(
+            status_code=400,
+            detail="Preview job missing video URL"
+        )
+
+    # Extract video info for price calculation
+    try:
+        with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+            info = ydl.extract_info(video_url, download=False)
+            if not info:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not extract video information"
+                )
+            duration = info.get('duration', 0)
+            video_title = info.get('title', 'Video Translation')
+    except yt_dlp.utils.DownloadError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid video URL: {str(e)}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get video info: {str(e)}"
+        )
+
+    # Calculate price
+    processing_cost = calculate_processing_cost(duration)
+
+    # Create translation job record
+    try:
+        translation_job = db.create_translation_job(
+            user_id=current_user.user_id,
+            preview_job_id=preview_id,
+            processing_cost=processing_cost
+        )
+        translation_job_id = translation_job.get("id")
+        if not translation_job_id:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create translation job"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create translation job: {str(e)}"
+        )
+
+    # Create Payment provider Checkout session
+    try:
+        checkout_result = db.create_payment-provider_checkout_session(
+            translation_job_id=translation_job_id,
+            processing_cost=processing_cost,
+            video_title=video_title,
+            customer_email=current_user.email
+        )
+
+        # Update translation job with Payment provider session ID
+        db.update_translation_job(
+            translation_job_id,
+            payment-provider_checkout_session_id=checkout_result["checkout_session_id"]
+        )
+
+        return CheckoutResponse(
+            checkout_url=checkout_result["checkout_url"],
+            translation_job_id=translation_job_id
+        )
+
+    except ValueError as e:
+        # Cleanup: delete the translation job if Payment provider fails
+        # (optional - could leave for debugging)
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create checkout session: {str(e)}"
         )
 
 
