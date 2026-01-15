@@ -2205,10 +2205,78 @@
             }
         }
 
-        // Proceed to checkout (placeholder for US-025)
-        function proceedToCheckout() {
-            // This will be implemented in US-025
-            console.log('Proceeding to checkout...');
+        // Proceed to checkout - calls /checkout/create and redirects to Stripe
+        async function proceedToCheckout() {
+            // Get preview ID from current state
+            const previewId = currentPreviewId || (window.currentPreviewData && window.currentPreviewData.preview_id);
+
+            if (!previewId) {
+                showError('No preview available. Please create a preview first.');
+                return;
+            }
+
+            if (!currentUser || !currentUser.access_token) {
+                // User not logged in - show auth modal
+                showAuthModal();
+                return;
+            }
+
+            // Show loading state on button
+            setCheckoutLoading(true);
+
+            try {
+                const response = await fetch('/checkout/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentUser.access_token}`
+                    },
+                    body: JSON.stringify({ preview_id: previewId })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    // Handle auth errors
+                    if (response.status === 401) {
+                        // Token expired or invalid - clear auth state and show modal
+                        clearAuthState();
+                        showAuthModal();
+                        throw new Error('Session expired. Please sign in again.');
+                    }
+                    throw new Error(error.detail || 'Failed to create checkout session');
+                }
+
+                const data = await response.json();
+
+                // Store translation job ID for later use
+                sessionStorage.setItem('pending_translation_job_id', data.translation_job_id);
+
+                // Redirect to Stripe Checkout
+                window.location.href = data.checkout_url;
+
+            } catch (error) {
+                setCheckoutLoading(false);
+                showError(error.message);
+            }
+        }
+
+        // Set checkout loading state
+        function setCheckoutLoading(loading) {
+            getFullVideoBtn.disabled = loading;
+            if (loading) {
+                getFullVideoBtn.innerHTML = '<span class="loading-spinner"></span> Processing...';
+            } else {
+                getFullVideoBtn.innerHTML = 'Get Full Video';
+            }
+        }
+
+        // Clear auth state (when token is invalid/expired)
+        function clearAuthState() {
+            currentUser = null;
+            sessionStorage.removeItem('auth_token');
+            sessionStorage.removeItem('refresh_token');
+            sessionStorage.removeItem('user_email');
+            sessionStorage.removeItem('user_id');
         }
 
         // Hide preview player panel
