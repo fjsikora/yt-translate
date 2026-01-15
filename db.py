@@ -20,6 +20,7 @@ SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
 # Environment variables for Stripe
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 STRIPE_SUCCESS_URL = os.getenv("STRIPE_SUCCESS_URL", "http://localhost:8000/success")
 STRIPE_CANCEL_URL = os.getenv("STRIPE_CANCEL_URL", "http://localhost:8000/")
 
@@ -699,6 +700,34 @@ def verify_jwt(access_token: str) -> dict:
             raise ValueError("Invalid or expired token")
         else:
             raise ValueError(f"Token verification failed: {str(e)}")
+
+
+def verify_stripe_webhook_signature(payload: bytes, signature: str) -> dict:
+    """
+    Verify a Stripe webhook signature and parse the event.
+
+    Args:
+        payload: Raw request body bytes
+        signature: Stripe-Signature header value
+
+    Returns:
+        Parsed Stripe event dict
+
+    Raises:
+        ValueError: If signature verification fails or webhook secret not configured
+    """
+    if not STRIPE_WEBHOOK_SECRET:
+        raise ValueError("Stripe webhook secret not configured (STRIPE_WEBHOOK_SECRET not set)")
+
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, signature, STRIPE_WEBHOOK_SECRET
+        )
+        return event
+    except stripe.SignatureVerificationError as e:
+        raise ValueError(f"Invalid webhook signature: {str(e)}")
+    except Exception as e:
+        raise ValueError(f"Webhook verification failed: {str(e)}")
 
 
 def test_connection() -> bool:
