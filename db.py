@@ -1,20 +1,31 @@
 """
-Database module for Supabase integration.
+Database module for Supabase integration and Stripe payments.
 
 Provides client initialization and helper functions for CRUD operations
 on profiles, preview_jobs, and translation_jobs tables.
+Also includes Stripe Checkout session creation.
 """
 
 import os
 from typing import Optional
 from datetime import datetime
 
+import stripe
 from supabase import create_client, Client
 
 
 # Environment variables for Supabase connection
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+
+# Environment variables for Stripe
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_SUCCESS_URL = os.getenv("STRIPE_SUCCESS_URL", "http://localhost:8000/success")
+STRIPE_CANCEL_URL = os.getenv("STRIPE_CANCEL_URL", "http://localhost:8000/")
+
+# Configure Stripe
+if STRIPE_SECRET_KEY:
+    stripe.api_key = STRIPE_SECRET_KEY
 
 # Global client instance (lazy initialization)
 _supabase_client: Optional[Client] = None
@@ -575,6 +586,75 @@ def exchange_oauth_code(code: str) -> dict:
 
     except Exception as e:
         raise ValueError(f"Failed to exchange OAuth code: {str(e)}")
+
+
+# --- Stripe Operations ---
+
+def create_stripe_checkout_session(
+    translation_job_id: str,
+    price_cents: int,
+    video_title: str,
+    customer_email: Optional[str] = None
+) -> dict:
+    """
+    Create a Stripe Checkout session for a translation job.
+
+    Args:
+        translation_job_id: UUID of the translation job (used for metadata)
+        price_cents: Price in cents
+        video_title: Video title for the line item description
+        customer_email: Optional customer email for pre-filling checkout
+
+    Returns:
+        Dict with checkout session info:
+        {
+            "checkout_session_id": str,
+            "checkout_url": str
+        }
+
+    Raises:
+        ValueError: If Stripe is not configured or checkout creation fails
+    """
+    if not STRIPE_SECRET_KEY:
+        raise ValueError("Stripe is not configured (STRIPE_SECRET_KEY not set)")
+
+    try:
+        # Create checkout session
+        checkout_params: dict = {
+            "payment_method_types": ["card"],
+            "line_items": [{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {
+                        "name": "Video Translation",
+                        "description": f"Full translation of: {video_title[:100]}"
+                    },
+                    "unit_amount": price_cents,
+                },
+                "quantity": 1,
+            }],
+            "mode": "payment",
+            "success_url": f"{STRIPE_SUCCESS_URL}?session_id={{CHECKOUT_SESSION_ID}}",
+            "cancel_url": STRIPE_CANCEL_URL,
+            "metadata": {
+                "translation_job_id": translation_job_id
+            }
+        }
+
+        if customer_email:
+            checkout_params["customer_email"] = customer_email
+
+        session = stripe.checkout.Session.create(**checkout_params)
+
+        return {
+            "checkout_session_id": session.id,
+            "checkout_url": session.url or ""
+        }
+
+    except stripe.StripeError as e:
+        raise ValueError(f"Stripe checkout creation failed: {str(e)}")
+    except Exception as e:
+        raise ValueError(f"Failed to create checkout session: {str(e)}")
 
 
 # --- Connection Test ---
