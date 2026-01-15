@@ -837,3 +837,61 @@
 - SVG transform-origin must be set explicitly for needle rotation: `transformOrigin: '200px 180px'`
 - On completion, hide VU meter and stages, show download section for cleaner UX
 
+
+## US-028: Frontend - User Dashboard - COMPLETE
+
+**Date:** 2026-01-15
+**Files changed:**
+- static/index.html (modified - added dashboard panel)
+
+**Implementation notes:**
+- Added CSS for dashboard panel, jobs list, user navigation bar:
+  - .dashboard-panel: Panel container with visibility toggle
+  - .jobs-list, .job-item: List display for translation jobs
+  - .job-item-status: Status indicator dots (completed=green, processing=amber, failed=red)
+  - .dashboard-empty: Empty state for users with no translations
+  - .user-nav: Fixed position navigation bar shown when logged in
+- Added HTML for dashboard panel with:
+  - Panel header with "Translation Archive" title
+  - Dashboard header with title, subtitle, and "New Translation" button
+  - Loading state with spinner
+  - Jobs list container (dynamically populated)
+  - Empty state with icon, message, and CTA button
+- Added user navigation bar at top of body:
+  - User email display
+  - Dashboard link (#dashboard hash route)
+  - Sign Out button
+- JavaScript functions added:
+  - initDashboard(): Set up button event listeners
+  - initUserNav(): Restore auth state from sessionStorage, show nav if logged in
+  - showUserNav()/hideUserNav(): Toggle user nav visibility
+  - handleSignOut(): Clear auth state and reset UI
+  - goToHome(): Navigate back to home view
+  - showDashboard(): Display dashboard, load jobs from API
+  - hideDashboardPanel(): Hide dashboard and show input panel
+  - loadDashboardJobs(): Fetch jobs from GET /jobs endpoint
+  - renderDashboardJobs(): Build job list HTML with status, title, language, date
+  - formatJobDate(): Human-readable date (Today, Yesterday, X days ago, or full date)
+  - getLanguageName(): Map language codes to full names
+  - escapeHtml(): Prevent XSS in job titles
+  - viewJob(): Navigate to #job/{jobId} for progress view
+  - downloadJob(): Fetch download URL and open in new tab
+- Updated checkHashRoute() to handle #dashboard route
+- Added showUserNav() calls after successful auth (login and OAuth callback)
+- Added inputPanel DOM reference for hiding during dashboard view
+
+**Acceptance criteria verification:**
+1. ✅ /dashboard page lists all user's jobs - GET /jobs endpoint called, jobs rendered in list
+2. ✅ Shows: video title, language, status, date - job-item-title, job-item-language, job-item-status, job-item-date
+3. ✅ Download button for completed jobs - job-item-btn.download with downloadJob() handler
+4. ✅ Empty state for new users - dashboard-empty section shown when jobs.length === 0
+5. ✅ Typecheck passes - Python syntax check passed
+6. ⚠️ Browser verification - Server dependencies required for full testing
+
+**Learnings:**
+- Hash routing pattern: #dashboard for SPA-style navigation
+- User nav bar should be shown after any successful auth flow (email login, OAuth callback, session restore)
+- escapeHtml() using textContent/innerHTML pattern prevents XSS in dynamic content
+- formatJobDate() with relative dates (Today, Yesterday, X days ago) improves UX
+- inputPanel must be explicitly hidden when showing dashboard to avoid layout conflicts
+

@@ -432,8 +432,8 @@
         "Verify in browser using MCP Toolkit browser tools"
       ],
       "priority": 28,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 28. Dashboard panel with hash routing #dashboard, user nav bar, jobs list with status/language/date, download buttons for completed jobs, empty state for new users."
     }
   ]
 }
