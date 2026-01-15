@@ -579,6 +579,48 @@ def exchange_oauth_code(code: str) -> dict:
 
 # --- Connection Test ---
 
+def verify_jwt(access_token: str) -> dict:
+    """
+    Verify a Supabase JWT access token and extract user information.
+
+    Uses Supabase's get_user() to validate the token server-side.
+    This is the most reliable method as it validates against Supabase Auth.
+
+    Args:
+        access_token: JWT access token from client
+
+    Returns:
+        Dict with user info:
+        {
+            "user_id": str,
+            "email": str
+        }
+
+    Raises:
+        ValueError: If token is invalid or expired
+    """
+    client = get_supabase_client()
+
+    try:
+        # Use Supabase to verify the token and get user info
+        result = client.auth.get_user(access_token)
+
+        if result.user is None:
+            raise ValueError("Invalid or expired token")
+
+        return {
+            "user_id": result.user.id,
+            "email": result.user.email or ""
+        }
+
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "invalid" in error_msg or "expired" in error_msg or "jwt" in error_msg:
+            raise ValueError("Invalid or expired token")
+        else:
+            raise ValueError(f"Token verification failed: {str(e)}")
+
+
 def test_connection() -> bool:
     """
     Test the Supabase connection.
