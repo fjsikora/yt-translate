@@ -42,6 +42,7 @@ REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "/tmp/yt-translate"))
 MAX_VIDEO_DURATION = int(os.getenv("MAX_VIDEO_DURATION", "600"))  # 10 minutes default
 PROCESSING_RATE = int(os.getenv("PROCESSING_RATE", "50"))  # $0.50 per minute default
+PREVIEW_DURATION_SECONDS = int(os.getenv("PREVIEW_DURATION_SECONDS", "60"))  # Free preview duration
 
 # Supported languages (Chatterbox multilingual model)
 SUPPORTED_LANGUAGES = {
@@ -158,8 +159,24 @@ def update_job(job_id: str, **kwargs):
         jobs[job_id]["updated_at"] = time.time()
 
 
-async def download_video(url: str, job_id: str) -> tuple[Path, Path, dict]:
-    """Download video from any supported site and extract audio."""
+async def download_video(
+    url: str,
+    job_id: str,
+    duration_limit: Optional[int] = None
+) -> tuple[Path, Path, dict]:
+    """
+    Download video from any supported site and extract audio.
+
+    Args:
+        url: Video URL (supports all yt-dlp sites)
+        job_id: Unique job identifier for progress tracking
+        duration_limit: Optional maximum duration in seconds. If provided,
+                        both video and audio will be trimmed to this length.
+                        Used for preview generation (e.g., 60 seconds).
+
+    Returns:
+        Tuple of (video_path, audio_path, info_dict)
+    """
     update_job(job_id, stage="download", progress=5)
 
     job_dir = OUTPUT_DIR / job_id
@@ -172,7 +189,9 @@ async def download_video(url: str, job_id: str) -> tuple[Path, Path, dict]:
         title = info.get('title', video_id)
         duration = info.get('duration', 0)
 
-        if duration > MAX_VIDEO_DURATION:
+        # For duration-limited downloads, only check against limit if no duration_limit
+        # (preview clips don't need to respect MAX_VIDEO_DURATION)
+        if duration_limit is None and duration > MAX_VIDEO_DURATION:
             raise ValueError(f"Video too long ({duration}s). Maximum is {MAX_VIDEO_DURATION}s.")
 
     update_job(job_id, progress=10)
@@ -201,16 +220,43 @@ async def download_video(url: str, job_id: str) -> tuple[Path, Path, dict]:
 
     update_job(job_id, progress=20)
 
-    # Extract audio
-    subprocess.run([
+    # If duration_limit is specified, trim the video to that duration using ffmpeg
+    if duration_limit is not None and duration_limit > 0:
+        trimmed_video_path = job_dir / f"{video_id}_trimmed.mp4"
+        subprocess.run([
+            'ffmpeg', '-i', str(video_path),
+            '-t', str(duration_limit),
+            '-c:v', 'copy', '-c:a', 'copy',
+            '-y', str(trimmed_video_path)
+        ], capture_output=True, check=True)
+
+        # Replace original with trimmed version
+        video_path.unlink()  # Delete original
+        trimmed_video_path.rename(video_path)  # Rename trimmed to original name
+
+    update_job(job_id, progress=22)
+
+    # Build ffmpeg command for audio extraction
+    ffmpeg_audio_cmd = [
         'ffmpeg', '-i', str(video_path),
         '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
-        '-y', str(audio_path)
-    ], capture_output=True, check=True)
+    ]
+
+    # Add duration limit for audio extraction if specified
+    if duration_limit is not None and duration_limit > 0:
+        ffmpeg_audio_cmd.extend(['-t', str(duration_limit)])
+
+    ffmpeg_audio_cmd.extend(['-y', str(audio_path)])
+
+    # Extract audio (with optional duration limit)
+    subprocess.run(ffmpeg_audio_cmd, capture_output=True, check=True)
 
     update_job(job_id, progress=25)
 
-    return video_path, audio_path, {"title": title, "duration": duration, "video_id": video_id}
+    # Return actual duration (limited if applicable)
+    actual_duration = min(duration, duration_limit) if duration_limit else duration
+
+    return video_path, audio_path, {"title": title, "duration": actual_duration, "video_id": video_id}
 
 
 async def transcribe_audio(audio_path: Path, job_id: str) -> str:
@@ -464,17 +510,24 @@ async def process_preview(preview_id: str, video_url: str, target_language: str)
     """
     Background task to process a preview translation (first 60 seconds only).
 
-    This is a placeholder that will be fully implemented in US-006.
-    For now, it just updates the status to indicate processing has started.
+    Uses PREVIEW_DURATION_SECONDS to limit the video/audio duration.
+    Full pipeline implementation in US-006.
     """
     try:
         # Update status to processing
         db.update_preview_job(preview_id, status="processing", progress=0, stage="initializing")
 
-        # TODO: US-005 - Download first 60 seconds of video
-        # TODO: US-006 - Process preview pipeline (transcribe, translate, TTS, merge)
+        # US-005: Download first PREVIEW_DURATION_SECONDS of video
+        # The download_video function now accepts duration_limit parameter
+        # Full pipeline will be: download -> transcribe -> translate -> TTS -> merge
+        # For now, just mark as queued until US-006 implements the full pipeline
 
-        # For now, mark as pending until full implementation
+        # TODO: US-006 - Complete preview pipeline:
+        # video_path, audio_path, info = await download_video(
+        #     video_url, preview_id, duration_limit=PREVIEW_DURATION_SECONDS
+        # )
+        # Then: transcribe, translate, TTS, merge
+
         db.update_preview_job(
             preview_id,
             status="processing",
