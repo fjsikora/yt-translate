@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Successful // Universal Video Translator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-deep: #0a0a0a;
+            --bg-panel: #111111;
+            --phosphor-green: #00ff66;
+            --phosphor-green-dim: #00aa44;
+            --phosphor-green-glow: rgba(0, 255, 102, 0.4);
+            --amber: #ffaa00;
+            --amber-dim: #aa7700;
+            --amber-glow: rgba(255, 170, 0, 0.4);
+            --text-primary: #e8e8e8;
+            --text-dim: #888888;
+            --border-color: #2a2a2a;
+            --red-alert: #ff3344;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Space Mono', monospace;
+            background: var(--bg-deep);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        /* CRT Scan Lines Overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 255, 102, 0.03) 0px,
+                rgba(0, 255, 102, 0.03) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        .success-container {
+            max-width: 600px;
+            width: 100%;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 3rem 2rem;
+            text-align: center;
+            position: relative;
+        }
+
+        .success-icon {
+            width: 80px;
+            height: 80px;
+            border: 3px solid var(--phosphor-green);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1.5rem;
+            animation: pulse-glow 2s ease-in-out infinite;
+        }
+
+        .success-icon svg {
+            width: 40px;
+            height: 40px;
+            stroke: var(--phosphor-green);
+            stroke-width: 3;
+            fill: none;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% {
+                box-shadow: 0 0 20px var(--phosphor-green-glow);
+            }
+            50% {
+                box-shadow: 0 0 40px var(--phosphor-green-glow), 0 0 60px rgba(0, 255, 102, 0.2);
+            }
+        }
+
+        .success-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--phosphor-green);
+            text-shadow: 0 0 20px var(--phosphor-green-glow);
+            margin-bottom: 0.5rem;
+            letter-spacing: 0.05em;
+        }
+
+        .success-subtitle {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin-bottom: 2rem;
+        }
+
+        .status-section {
+            background: rgba(0, 255, 102, 0.05);
+            border: 1px solid var(--phosphor-green-dim);
+            border-radius: 6px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .status-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            letter-spacing: 0.15em;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+        }
+
+        .status-value {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.2rem;
+            color: var(--amber);
+            text-shadow: 0 0 10px var(--amber-glow);
+        }
+
+        .status-stage {
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            margin-top: 0.5rem;
+        }
+
+        .redirect-info {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            margin-bottom: 1.5rem;
+        }
+
+        .redirect-countdown {
+            color: var(--amber);
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--phosphor-green-dim);
+            border-top-color: var(--phosphor-green);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 0.5rem;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .action-button {
+            display: inline-block;
+            background: var(--amber);
+            color: var(--bg-deep);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.85rem;
+            font-weight: 600;
+            padding: 0.75rem 2rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+
+        .action-button:hover {
+            box-shadow: 0 0 20px var(--amber-glow);
+            transform: translateY(-2px);
+        }
+
+        .error-container {
+            display: none;
+            background: rgba(255, 51, 68, 0.1);
+            border: 1px solid var(--red-alert);
+            border-radius: 6px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .error-container.visible {
+            display: block;
+        }
+
+        .error-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1rem;
+            color: var(--red-alert);
+            margin-bottom: 0.5rem;
+        }
+
+        .error-message {
+            font-size: 0.85rem;
+            color: var(--text-primary);
+        }
+
+        .loading-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid var(--phosphor-green-dim);
+            border-top-color: var(--phosphor-green);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+
+        .loading-text {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-dim);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="success-container">
+        <!-- Loading State -->
+        <div id="loading-state" class="loading-state">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Verifying payment...</div>
+        </div>
+
+        <!-- Success Content -->
+        <div id="success-content" class="hidden">
+            <div class="success-icon">
+                <svg viewBox="0 0 24 24">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+            </div>
+
+            <h1 class="success-title">Payment Successful!</h1>
+            <p class="success-subtitle">Your translation is now being processed</p>
+
+            <div class="status-section">
+                <div class="status-label">Translation Status</div>
+                <div class="status-value" id="job-status">PROCESSING</div>
+                <div class="status-stage" id="job-stage">
+                    <span class="spinner"></span>
+                    Initializing translation pipeline...
+                </div>
+            </div>
+
+            <p class="redirect-info">
+                Redirecting to job progress in <span class="redirect-countdown" id="countdown">5</span> seconds...
+            </p>
+
+            <a href="#" class="action-button" id="view-progress-btn">View Progress Now</a>
+        </div>
+
+        <!-- Error Content -->
+        <div id="error-content" class="hidden">
+            <div class="error-container visible">
+                <div class="error-title">VERIFICATION ERROR</div>
+                <div class="error-message" id="error-message">Unable to verify payment status.</div>
+            </div>
+            <a href="/static/index.html" class="action-button">Return to Home</a>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let translationJobId = null;
+        let accessToken = null;
+        let redirectTimer = null;
+        let countdownValue = 5;
+
+        // DOM Elements
+        const loadingState = document.getElementById('loading-state');
+        const successContent = document.getElementById('success-content');
+        const errorContent = document.getElementById('error-content');
+        const jobStatusEl = document.getElementById('job-status');
+        const jobStageEl = document.getElementById('job-stage');
+        const countdownEl = document.getElementById('countdown');
+        const viewProgressBtn = document.getElementById('view-progress-btn');
+        const errorMessage = document.getElementById('error-message');
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', init);
+
+        async function init() {
+            // Get Stripe session_id from URL parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const stripeSessionId = urlParams.get('session_id');
+
+            // Get stored data from sessionStorage
+            translationJobId = sessionStorage.getItem('pending_translation_job_id');
+            accessToken = sessionStorage.getItem('auth_token');
+
+            // Validate we have the necessary data
+            if (!stripeSessionId && !translationJobId) {
+                showError('No payment session found. Please try again from the beginning.');
+                return;
+            }
+
+            if (!accessToken) {
+                showError('Authentication required. Please log in and try again.');
+                return;
+            }
+
+            // If we have a translation job ID, fetch its status
+            if (translationJobId) {
+                await fetchJobStatus();
+            } else {
+                // If we only have Stripe session but no job ID, show success and redirect to dashboard
+                showSuccess();
+                startRedirectCountdown('/static/index.html#dashboard');
+            }
+        }
+
+        async function fetchJobStatus() {
+            try {
+                const response = await fetch(`/jobs/${translationJobId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+
+                if (response.status === 401) {
+                    showError('Session expired. Please log in again.');
+                    clearAuthState();
+                    return;
+                }
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || 'Failed to fetch job status');
+                }
+
+                const data = await response.json();
+                showSuccess();
+                updateJobStatus(data);
+
+                // Set up the view progress button
+                viewProgressBtn.href = `/static/index.html#job/${translationJobId}`;
+                viewProgressBtn.onclick = (e) => {
+                    e.preventDefault();
+                    navigateToJobProgress();
+                };
+
+                // Start redirect countdown
+                startRedirectCountdown();
+
+            } catch (error) {
+                console.error('Error fetching job status:', error);
+                showError(error.message || 'Unable to verify payment status.');
+            }
+        }
+
+        function showSuccess() {
+            loadingState.classList.add('hidden');
+            successContent.classList.remove('hidden');
+            errorContent.classList.add('hidden');
+        }
+
+        function showError(message) {
+            loadingState.classList.add('hidden');
+            successContent.classList.add('hidden');
+            errorContent.classList.remove('hidden');
+            errorMessage.textContent = message;
+        }
+
+        function updateJobStatus(data) {
+            // Update status display
+            const statusMap = {
+                'pending': 'PENDING',
+                'processing': 'PROCESSING',
+                'completed': 'COMPLETED',
+                'failed': 'FAILED'
+            };
+
+            jobStatusEl.textContent = statusMap[data.status] || data.status.toUpperCase();
+
+            // Update status color based on state
+            if (data.status === 'completed') {
+                jobStatusEl.style.color = 'var(--phosphor-green)';
+                jobStatusEl.style.textShadow = '0 0 10px var(--phosphor-green-glow)';
+            } else if (data.status === 'failed') {
+                jobStatusEl.style.color = 'var(--red-alert)';
+                jobStatusEl.style.textShadow = 'none';
+            }
+
+            // Update stage info
+            if (data.stage) {
+                const stageLabels = {
+                    'downloading': 'Downloading video...',
+                    'transcribing': 'Transcribing audio...',
+                    'translating': 'Translating text...',
+                    'synthesizing': 'Generating speech...',
+                    'merging': 'Creating final video...',
+                    'uploading': 'Uploading to storage...',
+                    'completed': 'Translation complete!'
+                };
+                const stageText = stageLabels[data.stage] || data.stage;
+
+                if (data.status === 'processing') {
+                    jobStageEl.innerHTML = `<span class="spinner"></span> ${stageText}`;
+                } else if (data.status === 'completed') {
+                    jobStageEl.innerHTML = stageText;
+                } else if (data.status === 'failed') {
+                    jobStageEl.innerHTML = data.error || 'Processing failed';
+                    jobStageEl.style.color = 'var(--red-alert)';
+                }
+            }
+
+            // Add progress percentage if available
+            if (data.progress !== undefined && data.status === 'processing') {
+                jobStageEl.innerHTML += ` (${data.progress}%)`;
+            }
+        }
+
+        function startRedirectCountdown(customUrl = null) {
+            const targetUrl = customUrl || `/static/index.html#job/${translationJobId}`;
+
+            redirectTimer = setInterval(() => {
+                countdownValue--;
+                countdownEl.textContent = countdownValue;
+
+                if (countdownValue <= 0) {
+                    clearInterval(redirectTimer);
+                    navigateToJobProgress(targetUrl);
+                }
+            }, 1000);
+        }
+
+        function navigateToJobProgress(customUrl = null) {
+            if (redirectTimer) {
+                clearInterval(redirectTimer);
+            }
+
+            // Clear the pending job ID since we're navigating
+            sessionStorage.removeItem('pending_translation_job_id');
+
+            // Navigate to the job progress view
+            const targetUrl = customUrl || `/static/index.html#job/${translationJobId}`;
+            window.location.href = targetUrl;
+        }
+
+        function clearAuthState() {
+            sessionStorage.removeItem('auth_token');
+            sessionStorage.removeItem('refresh_token');
+            sessionStorage.removeItem('user_email');
+            sessionStorage.removeItem('user_id');
+            sessionStorage.removeItem('pending_translation_job_id');
+        }
+    </script>
+</body>
+</html>
