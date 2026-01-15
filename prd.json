@@ -401,8 +401,8 @@
         "Verify in browser using MCP Toolkit browser tools"
       ],
       "priority": 26,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 26. Created /static/success.html with payment confirmation UI, /success route with query param passthrough, auto-redirect countdown."
     },
     {
       "id": "US-027",

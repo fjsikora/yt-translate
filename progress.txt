@@ -751,3 +751,47 @@
 - Handle 401 separately to re-prompt authentication rather than showing generic error
 - Loading state should disable the button AND show visual feedback (spinner)
 - Preview ID can come from multiple sources (currentPreviewId or window.currentPreviewData)
+
+## US-026: Frontend - Payment Success Page - COMPLETE
+
+**Date:** 2026-01-15
+**Files changed:**
+- static/success.html (created)
+- cloud_translate.py (modified - added /success route)
+
+**Implementation notes:**
+- Created /static/success.html with CRT terminal aesthetic matching main site
+- Success page features:
+  - Animated success icon with pulsing green glow
+  - "Payment Successful!" title with phosphor green styling
+  - Translation job status display (PROCESSING, COMPLETED, FAILED)
+  - Current processing stage with spinner and percentage
+  - Auto-redirect countdown (5 seconds) to job progress view
+  - "View Progress Now" button for immediate navigation
+  - Error handling for missing auth or invalid sessions
+- Added GET /success route in cloud_translate.py:
+  - Uses Request object to access query_params
+  - Preserves Stripe's session_id query parameter in redirect
+  - Redirects to /static/success.html
+- Page flow:
+  1. Stripe redirects to /success?session_id={CHECKOUT_SESSION_ID}
+  2. Backend redirects to /static/success.html?session_id=...
+  3. JavaScript reads session_id and pending_translation_job_id from sessionStorage
+  4. Fetches job status via GET /jobs/{job_id} with Bearer auth
+  5. Displays status and starts countdown
+  6. Auto-redirects to /static/index.html#job/{job_id}
+
+**Acceptance criteria verification:**
+1. ✅ /success page shows "Payment successful!" - success-title element with "Payment Successful!"
+2. ✅ Shows translation job status - job-status and job-stage elements updated by fetchJobStatus()
+3. ✅ Auto-redirects to job progress view - startRedirectCountdown() with 5 second timer
+4. ✅ Handles Stripe redirect parameters - urlParams.get('session_id') in init()
+5. ✅ Typecheck passes - Python and JavaScript syntax checks passed
+6. ⚠️ Browser verification - Server dependencies missing, code structure verified
+
+**Learnings:**
+- FastAPI RedirectResponse doesn't automatically preserve query params - need to pass request.query_params manually
+- Stripe success_url uses {CHECKOUT_SESSION_ID} placeholder that gets replaced with actual session ID
+- Using hash-based routing (#job/{id}) allows SPA-style navigation in index.html
+- sessionStorage.getItem('pending_translation_job_id') bridges checkout page to success page
+- Status colors: amber for processing, green for completed, red for failed
