@@ -39,6 +39,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "/tmp/yt-translate"))
 MAX_VIDEO_DURATION = int(os.getenv("MAX_VIDEO_DURATION", "600"))  # 10 minutes default
+PROCESSING_RATE = int(os.getenv("PROCESSING_RATE", "50"))  # $0.50 per minute default
 
 # Supported languages (Chatterbox multilingual model)
 SUPPORTED_LANGUAGES = {
@@ -81,6 +82,17 @@ class JobStatus(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     version: str
+
+
+class VideoInfoRequest(BaseModel):
+    video_url: str
+
+
+class VideoInfoResponse(BaseModel):
+    video_title: str
+    duration_seconds: int
+    thumbnail_url: Optional[str] = None
+    price_quote: int  # Price in cents for full translation
 
 
 # Lifespan for startup/shutdown
@@ -346,6 +358,17 @@ async def process_translation(job_id: str, video_url: str, target_language: str)
         raise
 
 
+def calculate_processing_cost(duration_seconds: int) -> int:
+    """
+    Calculate price in cents based on video duration.
+
+    Price is calculated per minute, rounded up.
+    Minimum price is 1 minute.
+    """
+    minutes = max(1, (duration_seconds + 59) // 60)  # Round up to nearest minute
+    return minutes * PROCESSING_RATE
+
+
 # --- API Endpoints ---
 
 @app.get("/")
@@ -364,6 +387,63 @@ async def health_check():
 async def list_languages():
     """List supported target languages."""
     return {"languages": SUPPORTED_LANGUAGES}
+
+
+@app.post("/video-info", response_model=VideoInfoResponse)
+async def get_video_info(request: VideoInfoRequest):
+    """
+    Get video information and price quote.
+
+    Extracts video title, duration, and thumbnail from the provided URL
+    and calculates a price quote for full translation.
+    """
+    try:
+        with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+            info = ydl.extract_info(request.video_url, download=False)
+
+            if info is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not extract video information from the provided URL"
+                )
+
+            title = info.get('title', 'Unknown Title')
+            duration = info.get('duration')
+
+            if duration is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not determine video duration. The URL may not point to a valid video."
+                )
+
+            # Get thumbnail (yt-dlp provides various thumbnail options)
+            thumbnail = info.get('thumbnail')
+            if not thumbnail:
+                thumbnails = info.get('thumbnails', [])
+                if thumbnails:
+                    thumbnail = thumbnails[-1].get('url')
+
+            processing_cost = calculate_processing_cost(duration)
+
+            return VideoInfoResponse(
+                video_title=title,
+                duration_seconds=duration,
+                thumbnail_url=thumbnail,
+                price_quote=processing_cost
+            )
+
+    except yt_dlp.utils.DownloadError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid video URL or video not accessible: {str(e)}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to extract video information: {str(e)}"
+        )
 
 
 @app.post("/translate", response_model=JobStatus)
