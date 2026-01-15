@@ -149,6 +149,15 @@ class CheckoutResponse(BaseModel):
     translation_job_id: str  # UUID of the created translation job
 
 
+class TranslationJobStatusResponse(BaseModel):
+    job_id: str  # UUID of the translation job
+    status: str  # "pending", "processing", "completed", "failed"
+    progress: int  # 0-100
+    stage: Optional[str] = None  # Current processing stage
+    error: Optional[str] = None  # Error message if failed
+    download_url: Optional[str] = None  # Signed URL when completed
+
+
 # Lifespan for startup/shutdown
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1435,6 +1444,69 @@ async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
 
     # Return 200 to acknowledge receipt
     return Response(status_code=200, content="Webhook received")
+
+
+# --- Translation Job Endpoints ---
+
+@app.get("/jobs/{job_id}", response_model=TranslationJobStatusResponse)
+async def get_translation_job_status(
+    job_id: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """
+    Get the status of a paid translation job.
+
+    Requires authentication. Only returns jobs owned by the current user.
+
+    Args:
+        job_id: UUID of the translation job
+        current_user: Authenticated user from JWT token
+
+    Returns:
+        TranslationJobStatusResponse with status, progress, stage, and download_url when completed
+
+    Raises:
+        404: Job not found or not owned by user
+    """
+    # Get the translation job from database
+    translation_job = db.get_translation_job(job_id)
+
+    if not translation_job:
+        raise HTTPException(status_code=404, detail="Translation job not found")
+
+    # Verify ownership: job must belong to current user
+    job_user_id = translation_job.get("user_id")
+    if job_user_id != current_user.user_id:
+        # Return 404 instead of 403 to not leak existence of other users' jobs
+        raise HTTPException(status_code=404, detail="Translation job not found")
+
+    # Build response
+    status = translation_job.get("status", "pending")
+    progress = translation_job.get("progress", 0)
+    stage = translation_job.get("stage")
+    error = translation_job.get("error_message")
+
+    download_url = None
+
+    # When completed, include download_url
+    if status == "completed":
+        output_file_path = translation_job.get("output_file_path")
+        if output_file_path:
+            try:
+                # Generate signed URL with 24 hour expiration
+                download_url = db.get_translation_signed_url(output_file_path, expires_in=86400)
+            except Exception:
+                # If signed URL generation fails, still return status
+                pass
+
+    return TranslationJobStatusResponse(
+        job_id=job_id,
+        status=status,
+        progress=progress,
+        stage=stage,
+        error=error,
+        download_url=download_url
+    )
 
 
 async def process_full_translation(translation_job_id: str, video_url: str, target_language: str):
