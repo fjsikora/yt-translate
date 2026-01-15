@@ -336,8 +336,8 @@
         "Verify in browser using MCP Toolkit browser tools"
       ],
       "priority": 22,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 22. Added session ID generation, POST /preview API call, polling every 2 seconds, progress bar updates, and error handling."
     },
     {
       "id": "US-023",
@@ -352,8 +352,8 @@
         "Verify in browser using MCP Toolkit browser tools"
       ],
       "priority": 23,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 23. Added preview player panel with video element, 60 SEC PREVIEW badge, prominent price display, Get Full Video CTA button, and auth flow trigger (showAuthModal placeholder for US-024)."
     },
     {
       "id": "US-024",
