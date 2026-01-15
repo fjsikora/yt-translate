@@ -15,6 +15,7 @@ No GPU required - all heavy lifting done by cloud APIs.
 
 import asyncio
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -118,6 +119,19 @@ class PreviewStatusResponse(BaseModel):
     error: Optional[str] = None  # Error message if failed
     preview_url: Optional[str] = None  # Signed URL when completed
     price_quote: Optional[int] = None  # Price in cents for full translation
+
+
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    user_id: str
+    email: str
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
 
 
 # Lifespan for startup/shutdown
@@ -859,6 +873,110 @@ async def get_preview_video(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate video URL: {str(e)}"
+        )
+
+
+# --- Authentication Endpoints ---
+
+# Email validation regex pattern (RFC 5322 simplified)
+EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+
+# Password requirements
+MIN_PASSWORD_LENGTH = 8
+
+
+def validate_email(email: str) -> bool:
+    """Validate email format using regex."""
+    return bool(EMAIL_REGEX.match(email))
+
+
+def validate_password(password: str) -> tuple[bool, str]:
+    """
+    Validate password strength.
+
+    Requirements:
+    - Minimum 8 characters
+    - At least one uppercase letter
+    - At least one lowercase letter
+    - At least one digit
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return False, f"Password must be at least {MIN_PASSWORD_LENGTH} characters"
+    if not re.search(r'[A-Z]', password):
+        return False, "Password must contain at least one uppercase letter"
+    if not re.search(r'[a-z]', password):
+        return False, "Password must contain at least one lowercase letter"
+    if not re.search(r'\d', password):
+        return False, "Password must contain at least one digit"
+    return True, ""
+
+
+@app.post("/auth/signup", response_model=AuthResponse)
+async def signup(request: SignupRequest):
+    """
+    Create a new user account.
+
+    Validates email format and password strength, creates user in Supabase Auth,
+    and creates a profile record with tos_accepted_at timestamp.
+
+    Returns:
+        AuthResponse with user_id, email, and session tokens
+    """
+    # Validate email format
+    if not validate_email(request.email):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid email format"
+        )
+
+    # Validate password strength
+    is_valid, error_msg = validate_password(request.password)
+    if not is_valid:
+        raise HTTPException(
+            status_code=400,
+            detail=error_msg
+        )
+
+    try:
+        # Create user in Supabase Auth
+        auth_result = db.signup_user(request.email, request.password)
+
+        user_id = auth_result["user_id"]
+        email = auth_result["email"]
+
+        # Create profile record with tos_accepted_at
+        try:
+            db.create_profile(
+                user_id=user_id,
+                email=email,
+                tos_accepted=True  # ToS acceptance is implicit in signup
+            )
+        except Exception as profile_error:
+            # If profile creation fails, the user was still created in Auth
+            # Log this but don't fail the signup
+            print(f"Warning: Failed to create profile for user {user_id}: {profile_error}")
+
+        # Return session tokens
+        return AuthResponse(
+            user_id=user_id,
+            email=email,
+            access_token=auth_result["access_token"],
+            refresh_token=auth_result["refresh_token"]
+        )
+
+    except ValueError as e:
+        # Validation errors from db.signup_user
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Signup failed: {str(e)}"
         )
 
 
