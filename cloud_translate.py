@@ -20,6 +20,7 @@ import subprocess
 import tempfile
 import time
 import uuid
+from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 from contextlib import asynccontextmanager
@@ -45,6 +46,14 @@ OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "/tmp/yt-translate"))
 MAX_VIDEO_DURATION = int(os.getenv("MAX_VIDEO_DURATION", "600"))  # 10 minutes default
 PRICE_PER_MINUTE_CENTS = int(os.getenv("PRICE_PER_MINUTE_CENTS", "50"))  # $0.50 per minute default
 PREVIEW_DURATION_SECONDS = int(os.getenv("PREVIEW_DURATION_SECONDS", "60"))  # Free preview duration
+
+# Rate limiting configuration
+PREVIEW_RATE_LIMIT = int(os.getenv("PREVIEW_RATE_LIMIT", "5"))  # Max preview requests per window
+PREVIEW_RATE_WINDOW = int(os.getenv("PREVIEW_RATE_WINDOW", "3600"))  # Window in seconds (1 hour)
+
+# In-memory rate limiting storage (use Redis for production with multiple instances)
+# Structure: {ip_address: [timestamp1, timestamp2, ...]}
+preview_rate_limits: dict[str, list[float]] = defaultdict(list)
 
 # Supported languages (Chatterbox multilingual model)
 SUPPORTED_LANGUAGES = {
@@ -477,6 +486,74 @@ def calculate_price_cents(duration_seconds: int) -> int:
     return minutes * PRICE_PER_MINUTE_CENTS
 
 
+def check_preview_rate_limit(client_ip: str) -> tuple[bool, int]:
+    """
+    Check if the client IP has exceeded the preview rate limit.
+
+    Implements a sliding window rate limiter that allows PREVIEW_RATE_LIMIT
+    requests per PREVIEW_RATE_WINDOW seconds.
+
+    Args:
+        client_ip: The client's IP address
+
+    Returns:
+        Tuple of (is_allowed, retry_after_seconds)
+        - is_allowed: True if request is allowed, False if rate limited
+        - retry_after_seconds: Seconds to wait before retry (0 if allowed)
+    """
+    current_time = time.time()
+    window_start = current_time - PREVIEW_RATE_WINDOW
+
+    # Get existing timestamps for this IP and filter to current window
+    timestamps = preview_rate_limits[client_ip]
+    valid_timestamps = [ts for ts in timestamps if ts > window_start]
+
+    # Update the stored timestamps (cleanup old ones)
+    preview_rate_limits[client_ip] = valid_timestamps
+
+    # Check if rate limit exceeded
+    if len(valid_timestamps) >= PREVIEW_RATE_LIMIT:
+        # Calculate retry-after: time until oldest request expires from window
+        oldest_timestamp = min(valid_timestamps)
+        retry_after = int(oldest_timestamp + PREVIEW_RATE_WINDOW - current_time) + 1
+        return False, max(1, retry_after)
+
+    # Request allowed - record this timestamp
+    preview_rate_limits[client_ip].append(current_time)
+    return True, 0
+
+
+def get_client_ip(request: Request) -> str:
+    """
+    Extract the client IP address from a request.
+
+    Handles common proxy headers (X-Forwarded-For, X-Real-IP) and falls back
+    to the direct client IP if no proxy headers are present.
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        Client IP address as string
+    """
+    # Check for proxy headers (common when behind load balancers/CDNs)
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        # X-Forwarded-For can contain multiple IPs: client, proxy1, proxy2...
+        # The first one is the original client
+        return forwarded_for.split(",")[0].strip()
+
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
+
+    # Fall back to direct client IP
+    if request.client:
+        return request.client.host
+
+    return "unknown"
+
+
 # --- API Endpoints ---
 
 @app.get("/")
@@ -640,22 +717,40 @@ async def process_preview(preview_id: str, video_url: str, target_language: str)
 
 
 @app.post("/preview", response_model=PreviewResponse)
-async def create_preview(request: PreviewRequest, background_tasks: BackgroundTasks):
+async def create_preview(
+    preview_request: PreviewRequest,
+    background_tasks: BackgroundTasks,
+    request: Request
+):
     """
     Start a free preview translation job (first 60 seconds only).
 
     Creates a preview job record in the database and starts background processing.
     Guest users are identified by session_id.
+
+    Rate limited to PREVIEW_RATE_LIMIT requests per PREVIEW_RATE_WINDOW per IP address.
+    This does not affect authenticated users' paid translation jobs.
     """
+    # Check rate limit by IP address
+    client_ip = get_client_ip(request)
+    is_allowed, retry_after = check_preview_rate_limit(client_ip)
+
+    if not is_allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Maximum {PREVIEW_RATE_LIMIT} preview requests per hour. Try again later.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     # Validate language
-    if request.target_language not in SUPPORTED_LANGUAGES:
+    if preview_request.target_language not in SUPPORTED_LANGUAGES:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported language: {request.target_language}. Supported: {list(SUPPORTED_LANGUAGES.keys())}"
+            detail=f"Unsupported language: {preview_request.target_language}. Supported: {list(SUPPORTED_LANGUAGES.keys())}"
         )
 
     # Validate session_id is not empty
-    if not request.session_id or not request.session_id.strip():
+    if not preview_request.session_id or not preview_request.session_id.strip():
         raise HTTPException(
             status_code=400,
             detail="session_id is required"
@@ -664,7 +759,7 @@ async def create_preview(request: PreviewRequest, background_tasks: BackgroundTa
     # Validate video URL by attempting to extract info
     try:
         with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
-            info = ydl.extract_info(request.video_url, download=False)
+            info = ydl.extract_info(preview_request.video_url, download=False)
             if info is None:
                 raise HTTPException(
                     status_code=400,
@@ -686,9 +781,9 @@ async def create_preview(request: PreviewRequest, background_tasks: BackgroundTa
     # Create preview job in Supabase
     try:
         preview_job = db.create_preview_job(
-            session_id=request.session_id.strip(),
-            video_url=request.video_url,
-            target_language=request.target_language
+            session_id=preview_request.session_id.strip(),
+            video_url=preview_request.video_url,
+            target_language=preview_request.target_language
         )
     except Exception as e:
         raise HTTPException(
@@ -707,8 +802,8 @@ async def create_preview(request: PreviewRequest, background_tasks: BackgroundTa
     background_tasks.add_task(
         process_preview,
         preview_id,
-        request.video_url,
-        request.target_language
+        preview_request.video_url,
+        preview_request.target_language
     )
 
     return PreviewResponse(
