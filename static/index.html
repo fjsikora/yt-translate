@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VIDEO TRANSLATOR // Signal Processing Terminal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-deep: #0a0a0a;
+            --bg-panel: #111111;
+            --bg-input: #0d0d0d;
+            --phosphor-green: #00ff66;
+            --phosphor-green-dim: #00aa44;
+            --phosphor-green-glow: rgba(0, 255, 102, 0.4);
+            --amber: #ffaa00;
+            --amber-dim: #aa7700;
+            --amber-glow: rgba(255, 170, 0, 0.4);
+            --red-alert: #ff3344;
+            --red-glow: rgba(255, 51, 68, 0.4);
+            --text-primary: #e8e8e8;
+            --text-dim: #666666;
+            --border-color: #2a2a2a;
+            --scan-line: rgba(0, 255, 102, 0.03);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Space Mono', monospace;
+            background: var(--bg-deep);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* CRT Scan Lines Overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                var(--scan-line) 2px,
+                var(--scan-line) 4px
+            );
+            pointer-events: none;
+            z-index: 1000;
+            animation: scanlines 0.1s linear infinite;
+        }
+
+        /* Noise texture overlay */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+            opacity: 0.02;
+            pointer-events: none;
+            z-index: 999;
+        }
+
+        @keyframes scanlines {
+            0% { transform: translateY(0); }
+            100% { transform: translateY(4px); }
+        }
+
+        /* CRT Flicker on load */
+        @keyframes crt-flicker {
+            0% { opacity: 0; }
+            5% { opacity: 1; }
+            10% { opacity: 0.3; }
+            15% { opacity: 1; }
+            20% { opacity: 0.8; }
+            25% { opacity: 1; }
+            100% { opacity: 1; }
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+            position: relative;
+            z-index: 1;
+            animation: crt-flicker 0.5s ease-out;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+            padding: 2rem 0;
+            border-bottom: 1px solid var(--border-color);
+            position: relative;
+        }
+
+        .header::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            height: 2px;
+            background: var(--phosphor-green);
+            box-shadow: 0 0 20px var(--phosphor-green-glow);
+        }
+
+        .title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: clamp(1.8rem, 5vw, 3rem);
+            font-weight: 900;
+            letter-spacing: 0.15em;
+            color: var(--phosphor-green);
+            text-shadow:
+                0 0 10px var(--phosphor-green-glow),
+                0 0 20px var(--phosphor-green-glow),
+                0 0 40px var(--phosphor-green-glow);
+            margin-bottom: 0.5rem;
+            animation: title-glow 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes title-glow {
+            0% { text-shadow: 0 0 10px var(--phosphor-green-glow), 0 0 20px var(--phosphor-green-glow); }
+            100% { text-shadow: 0 0 15px var(--phosphor-green-glow), 0 0 30px var(--phosphor-green-glow), 0 0 50px var(--phosphor-green-glow); }
+        }
+
+        .subtitle {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+        }
+
+        /* Panel styling */
+        .panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--phosphor-green-dim), transparent);
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: rgba(0, 255, 102, 0.03);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .status-light {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--phosphor-green-dim);
+            box-shadow: 0 0 6px var(--phosphor-green-glow);
+            animation: pulse-light 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-light {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        .panel-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.7rem;
+            font-weight: 500;
+            letter-spacing: 0.2em;
+            color: var(--phosphor-green);
+        }
+
+        .panel-content {
+            padding: 1.5rem;
+        }
+
+        /* Input styling */
+        .input-group {
+            display: flex;
+            gap: 1rem;
+            align-items: stretch;
+        }
+
+        .url-input-wrapper {
+            flex: 1;
+            position: relative;
+        }
+
+        .url-input {
+            width: 100%;
+            padding: 1rem 1.25rem;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.9rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            color: var(--phosphor-green);
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .url-input::placeholder {
+            color: var(--text-dim);
+        }
+
+        .url-input:focus {
+            border-color: var(--phosphor-green-dim);
+            box-shadow: 0 0 15px var(--phosphor-green-glow), inset 0 0 10px rgba(0, 255, 102, 0.05);
+        }
+
+        .submit-btn {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            padding: 1rem 2rem;
+            background: transparent;
+            border: 2px solid var(--phosphor-green);
+            color: var(--phosphor-green);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .submit-btn:hover:not(:disabled) {
+            background: var(--phosphor-green);
+            color: var(--bg-deep);
+            box-shadow: 0 0 30px var(--phosphor-green-glow);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* Language Grid */
+        .language-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 0.5rem;
+        }
+
+        .lang-btn {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.7rem;
+            padding: 0.6rem 0.5rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            color: var(--text-dim);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .lang-btn:hover {
+            border-color: var(--amber-dim);
+            color: var(--amber);
+        }
+
+        .lang-btn.selected {
+            border-color: var(--amber);
+            color: var(--amber);
+            background: rgba(255, 170, 0, 0.1);
+            box-shadow: 0 0 15px var(--amber-glow);
+        }
+
+        .lang-code {
+            font-size: 0.6rem;
+            opacity: 0.6;
+        }
+
+        /* VU Meter */
+        .vu-meter-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 1rem 0;
+        }
+
+        .vu-meter {
+            width: 100%;
+            max-width: 400px;
+            position: relative;
+        }
+
+        .vu-meter svg {
+            width: 100%;
+            height: auto;
+        }
+
+        .needle {
+            transform-origin: 200px 180px;
+            transition: transform 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        .meter-glow {
+            filter: drop-shadow(0 0 3px var(--phosphor-green-glow));
+        }
+
+        /* Stage Indicators */
+        .stages {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .stage {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.65rem;
+            letter-spacing: 0.1em;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+
+        .stage-light {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--bg-input);
+            border: 1px solid var(--text-dim);
+            transition: all 0.3s ease;
+        }
+
+        .stage.active .stage-light {
+            background: var(--amber);
+            border-color: var(--amber);
+            box-shadow: 0 0 10px var(--amber-glow);
+            animation: stage-pulse 1s ease-in-out infinite;
+        }
+
+        .stage.complete .stage-light {
+            background: var(--phosphor-green);
+            border-color: var(--phosphor-green);
+            box-shadow: 0 0 10px var(--phosphor-green-glow);
+        }
+
+        .stage.active, .stage.complete {
+            color: var(--text-primary);
+        }
+
+        @keyframes stage-pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.2); }
+        }
+
+        /* Progress percentage */
+        .progress-text {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--phosphor-green);
+            text-align: center;
+            margin-top: 1rem;
+            text-shadow: 0 0 20px var(--phosphor-green-glow);
+        }
+
+        /* Output / Download Section */
+        .output-panel {
+            display: none;
+        }
+
+        .output-panel.visible {
+            display: block;
+            animation: panel-reveal 0.5s ease-out;
+        }
+
+        @keyframes panel-reveal {
+            0% { opacity: 0; transform: translateY(20px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+
+        .success-message {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--phosphor-green);
+            text-align: center;
+            letter-spacing: 0.15em;
+            text-shadow: 0 0 20px var(--phosphor-green-glow);
+            margin-bottom: 1.5rem;
+            animation: success-glow 1s ease-in-out infinite alternate;
+        }
+
+        @keyframes success-glow {
+            0% { opacity: 0.8; }
+            100% { opacity: 1; }
+        }
+
+        .download-btn {
+            display: block;
+            width: 100%;
+            max-width: 300px;
+            margin: 0 auto;
+            padding: 1.25rem 2rem;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            text-align: center;
+            text-decoration: none;
+            background: var(--phosphor-green);
+            color: var(--bg-deep);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            animation: download-pulse 2s ease-in-out infinite;
+        }
+
+        .download-btn:hover {
+            transform: scale(1.02);
+            box-shadow: 0 0 40px var(--phosphor-green-glow);
+        }
+
+        @keyframes download-pulse {
+            0%, 100% { box-shadow: 0 0 20px var(--phosphor-green-glow); }
+            50% { box-shadow: 0 0 40px var(--phosphor-green-glow), 0 0 60px var(--phosphor-green-glow); }
+        }
+
+        /* Error State */
+        .error-panel {
+            display: none;
+        }
+
+        .error-panel.visible {
+            display: block;
+        }
+
+        .error-panel .panel-header {
+            background: rgba(255, 51, 68, 0.1);
+        }
+
+        .error-panel .status-light {
+            background: var(--red-alert);
+            box-shadow: 0 0 6px var(--red-glow);
+        }
+
+        .error-panel .panel-title {
+            color: var(--red-alert);
+        }
+
+        .error-message {
+            color: var(--red-alert);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.85rem;
+            text-align: center;
+            padding: 1rem;
+        }
+
+        .retry-btn {
+            display: block;
+            margin: 1rem auto 0;
+            padding: 0.75rem 2rem;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            background: transparent;
+            border: 2px solid var(--red-alert);
+            color: var(--red-alert);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .retry-btn:hover {
+            background: var(--red-alert);
+            color: var(--bg-deep);
+        }
+
+        /* Hidden states */
+        .hidden {
+            display: none !important;
+        }
+
+        /* Processing state */
+        .processing .submit-btn {
+            pointer-events: none;
+        }
+
+        .processing .url-input {
+            pointer-events: none;
+            opacity: 0.6;
+        }
+
+        .processing .lang-btn {
+            pointer-events: none;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 2rem 0;
+            margin-top: 2rem;
+            border-top: 1px solid var(--border-color);
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            letter-spacing: 0.1em;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .input-group {
+                flex-direction: column;
+            }
+
+            .submit-btn {
+                width: 100%;
+            }
+
+            .language-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .stages {
+                gap: 1rem;
+            }
+
+            .stage {
+                font-size: 0.55rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1 class="title">VIDEO TRANSLATOR</h1>
+            <p class="subtitle">Signal Processing Terminal v1.0</p>
+        </header>
+
+        <!-- Input Panel -->
+        <section class="panel" id="input-panel">
+            <div class="panel-header">
+                <div class="status-light"></div>
+                <span class="panel-title">Signal Input</span>
+            </div>
+            <div class="panel-content">
+                <div class="input-group">
+                    <div class="url-input-wrapper">
+                        <input
+                            type="text"
+                            class="url-input"
+                            id="youtube-url"
+                            placeholder="ENTER YOUTUBE URL..."
+                            autocomplete="off"
+                        >
+                    </div>
+                    <button class="submit-btn" id="submit-btn">Acquire Signal</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Language Selection -->
+        <section class="panel" id="language-panel">
+            <div class="panel-header">
+                <div class="status-light"></div>
+                <span class="panel-title">Output Channel</span>
+            </div>
+            <div class="panel-content">
+                <div class="language-grid" id="language-grid">
+                    <!-- Languages loaded dynamically -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Progress Panel -->
+        <section class="panel hidden" id="progress-panel">
+            <div class="panel-header">
+                <div class="status-light"></div>
+                <span class="panel-title">Transmission Status</span>
+            </div>
+            <div class="panel-content">
+                <div class="vu-meter-container">
+                    <div class="vu-meter">
+                        <svg viewBox="0 0 400 220" xmlns="http://www.w3.org/2000/svg">
+                            <!-- Meter background -->
+                            <defs>
+                                <linearGradient id="meterGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                    <stop offset="0%" style="stop-color:#1a1a1a"/>
+                                    <stop offset="100%" style="stop-color:#0d0d0d"/>
+                                </linearGradient>
+                                <filter id="glow">
+                                    <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                                    <feMerge>
+                                        <feMergeNode in="coloredBlur"/>
+                                        <feMergeNode in="SourceGraphic"/>
+                                    </feMerge>
+                                </filter>
+                            </defs>
+
+                            <!-- Outer frame -->
+                            <rect x="10" y="10" width="380" height="200" rx="8" fill="url(#meterGrad)" stroke="#2a2a2a" stroke-width="2"/>
+
+                            <!-- Scale arc background -->
+                            <path d="M 60 180 A 140 140 0 0 1 340 180" fill="none" stroke="#1a1a1a" stroke-width="40"/>
+
+                            <!-- Scale markings -->
+                            <g class="meter-glow" fill="none" stroke="#00ff66" stroke-width="1" opacity="0.6">
+                                <!-- 0% -->
+                                <line x1="75" y1="165" x2="85" y2="155" />
+                                <!-- 25% -->
+                                <line x1="115" y1="95" x2="125" y2="105" />
+                                <!-- 50% -->
+                                <line x1="195" y1="55" x2="205" y2="65" />
+                                <!-- 75% -->
+                                <line x1="275" y1="95" x2="285" y2="105" />
+                                <!-- 100% -->
+                                <line x1="315" y1="165" x2="325" y2="155" />
+                            </g>
+
+                            <!-- Scale numbers -->
+                            <g fill="#00ff66" font-family="Orbitron" font-size="10" text-anchor="middle" opacity="0.8">
+                                <text x="65" y="180">0</text>
+                                <text x="105" y="100">25</text>
+                                <text x="200" y="50">50</text>
+                                <text x="295" y="100">75</text>
+                                <text x="335" y="180">100</text>
+                            </g>
+
+                            <!-- Progress arc (filled based on progress) -->
+                            <path id="progress-arc" d="M 60 180 A 140 140 0 0 1 60 180" fill="none" stroke="#00ff66" stroke-width="8" filter="url(#glow)" stroke-linecap="round"/>
+
+                            <!-- Needle pivot -->
+                            <circle cx="200" cy="180" r="15" fill="#1a1a1a" stroke="#00ff66" stroke-width="1"/>
+                            <circle cx="200" cy="180" r="8" fill="#00ff66" filter="url(#glow)"/>
+
+                            <!-- Needle -->
+                            <g class="needle" id="needle">
+                                <line x1="200" y1="180" x2="200" y2="50" stroke="#ffaa00" stroke-width="3" stroke-linecap="round" filter="url(#glow)"/>
+                                <polygon points="197,60 200,40 203,60" fill="#ffaa00" filter="url(#glow)"/>
+                            </g>
+
+                            <!-- VU label -->
+                            <text x="200" y="130" fill="#00ff66" font-family="Orbitron" font-size="14" text-anchor="middle" letter-spacing="0.2em" opacity="0.6">VU</text>
+                        </svg>
+                    </div>
+                    <div class="progress-text" id="progress-text">0%</div>
+                </div>
+
+                <div class="stages" id="stages">
+                    <div class="stage" data-stage="download">
+                        <span class="stage-light"></span>
+                        <span>Download</span>
+                    </div>
+                    <div class="stage" data-stage="transcribe">
+                        <span class="stage-light"></span>
+                        <span>Transcribe</span>
+                    </div>
+                    <div class="stage" data-stage="translate">
+                        <span class="stage-light"></span>
+                        <span>Translate</span>
+                    </div>
+                    <div class="stage" data-stage="synthesize">
+                        <span class="stage-light"></span>
+                        <span>Synthesize</span>
+                    </div>
+                    <div class="stage" data-stage="merge">
+                        <span class="stage-light"></span>
+                        <span>Merge</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Output Panel -->
+        <section class="panel output-panel" id="output-panel">
+            <div class="panel-header">
+                <div class="status-light"></div>
+                <span class="panel-title">Output Ready</span>
+            </div>
+            <div class="panel-content">
+                <div class="success-message">TRANSMISSION COMPLETE</div>
+                <a href="#" class="download-btn" id="download-btn">Download Video</a>
+            </div>
+        </section>
+
+        <!-- Error Panel -->
+        <section class="panel error-panel" id="error-panel">
+            <div class="panel-header">
+                <div class="status-light"></div>
+                <span class="panel-title">Signal Lost</span>
+            </div>
+            <div class="panel-content">
+                <div class="error-message" id="error-message">An error occurred</div>
+                <button class="retry-btn" id="retry-btn">Retry</button>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            Powered by OpenAI Whisper + Chatterbox TTS
+        </footer>
+    </div>
+
+    <script>
+        // State
+        let selectedLanguage = null;
+        let currentJobId = null;
+        let pollInterval = null;
+
+        // DOM Elements
+        const urlInput = document.getElementById('youtube-url');
+        const submitBtn = document.getElementById('submit-btn');
+        const languageGrid = document.getElementById('language-grid');
+        const progressPanel = document.getElementById('progress-panel');
+        const outputPanel = document.getElementById('output-panel');
+        const errorPanel = document.getElementById('error-panel');
+        const downloadBtn = document.getElementById('download-btn');
+        const errorMessage = document.getElementById('error-message');
+        const retryBtn = document.getElementById('retry-btn');
+        const progressText = document.getElementById('progress-text');
+        const needle = document.getElementById('needle');
+        const progressArc = document.getElementById('progress-arc');
+
+        // Language flags
+        const FLAGS = {
+            ar: '🇸🇦', zh: '🇨🇳', da: '🇩🇰', nl: '🇳🇱', en: '🇬🇧',
+            fi: '🇫🇮', fr: '🇫🇷', de: '🇩🇪', el: '🇬🇷', he: '🇮🇱',
+            hi: '🇮🇳', it: '🇮🇹', ja: '🇯🇵', ko: '🇰🇷', ms: '🇲🇾',
+            no: '🇳🇴', pl: '🇵🇱', pt: '🇵🇹', ru: '🇷🇺', es: '🇪🇸',
+            sw: '🇰🇪', sv: '🇸🇪', tr: '🇹🇷'
+        };
+
+        // Stage order for progress tracking
+        const STAGE_ORDER = ['download', 'transcribe', 'translate', 'synthesize', 'merge', 'done'];
+
+        // Initialize
+        async function init() {
+            await loadLanguages();
+            setupEventListeners();
+        }
+
+        // Load languages from API
+        async function loadLanguages() {
+            try {
+                const response = await fetch('/languages');
+                const data = await response.json();
+                renderLanguages(data.languages);
+            } catch (error) {
+                console.error('Failed to load languages:', error);
+                // Fallback languages
+                const fallback = {
+                    ar: 'Arabic', zh: 'Chinese', da: 'Danish', nl: 'Dutch',
+                    en: 'English', fi: 'Finnish', fr: 'French', de: 'German',
+                    el: 'Greek', he: 'Hebrew', hi: 'Hindi', it: 'Italian',
+                    ja: 'Japanese', ko: 'Korean', ms: 'Malay', no: 'Norwegian',
+                    pl: 'Polish', pt: 'Portuguese', ru: 'Russian', es: 'Spanish',
+                    sw: 'Swahili', sv: 'Swedish', tr: 'Turkish'
+                };
+                renderLanguages(fallback);
+            }
+        }
+
+        // Render language grid
+        function renderLanguages(languages) {
+            languageGrid.innerHTML = '';
+            for (const [code, name] of Object.entries(languages)) {
+                const btn = document.createElement('button');
+                btn.className = 'lang-btn';
+                btn.dataset.code = code;
+                btn.innerHTML = `
+                    <span class="lang-flag">${FLAGS[code] || '🌐'}</span>
+                    <span class="lang-name">${name}</span>
+                    <span class="lang-code">${code.toUpperCase()}</span>
+                `;
+                btn.addEventListener('click', () => selectLanguage(code, btn));
+                languageGrid.appendChild(btn);
+            }
+        }
+
+        // Select language
+        function selectLanguage(code, btn) {
+            document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            selectedLanguage = code;
+        }
+
+        // Setup event listeners
+        function setupEventListeners() {
+            submitBtn.addEventListener('click', startTranslation);
+            retryBtn.addEventListener('click', resetUI);
+            urlInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') startTranslation();
+            });
+        }
+
+        // Start translation
+        async function startTranslation() {
+            const url = urlInput.value.trim();
+
+            if (!url) {
+                showError('Please enter a YouTube URL');
+                return;
+            }
+
+            if (!selectedLanguage) {
+                showError('Please select a target language');
+                return;
+            }
+
+            // Reset UI
+            hideError();
+            hideOutput();
+            showProgress();
+            setProcessingState(true);
+            updateProgress(0, 'queued');
+
+            try {
+                const response = await fetch('/translate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        youtube_url: url,
+                        target_language: selectedLanguage
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Translation failed');
+                }
+
+                const data = await response.json();
+                currentJobId = data.job_id;
+                startPolling();
+            } catch (error) {
+                showError(error.message);
+                setProcessingState(false);
+            }
+        }
+
+        // Poll for status
+        function startPolling() {
+            if (pollInterval) clearInterval(pollInterval);
+
+            pollInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/status/${currentJobId}`);
+                    const data = await response.json();
+
+                    updateProgress(data.progress, data.stage);
+
+                    if (data.status === 'completed') {
+                        stopPolling();
+                        showOutput(data.output_url);
+                    } else if (data.status === 'failed') {
+                        stopPolling();
+                        showError(data.error || 'Translation failed');
+                    }
+                } catch (error) {
+                    console.error('Polling error:', error);
+                }
+            }, 2000);
+        }
+
+        // Stop polling
+        function stopPolling() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        }
+
+        // Update progress display
+        function updateProgress(percent, stage) {
+            // Update percentage text
+            progressText.textContent = `${percent}%`;
+
+            // Update needle rotation (-60deg = 0%, 60deg = 100%)
+            const rotation = -60 + (percent / 100) * 120;
+            needle.style.transform = `rotate(${rotation}deg)`;
+
+            // Update arc
+            updateProgressArc(percent);
+
+            // Update stage indicators
+            const stageIndex = STAGE_ORDER.indexOf(stage);
+            document.querySelectorAll('.stage').forEach((el, i) => {
+                const elStage = el.dataset.stage;
+                const elIndex = STAGE_ORDER.indexOf(elStage);
+
+                el.classList.remove('active', 'complete');
+
+                if (elIndex < stageIndex) {
+                    el.classList.add('complete');
+                } else if (elIndex === stageIndex && stage !== 'done') {
+                    el.classList.add('active');
+                }
+            });
+
+            // Mark all complete if done
+            if (stage === 'done') {
+                document.querySelectorAll('.stage').forEach(el => {
+                    el.classList.remove('active');
+                    el.classList.add('complete');
+                });
+            }
+        }
+
+        // Update progress arc
+        function updateProgressArc(percent) {
+            // Arc from -120deg to 120deg (240deg total sweep)
+            const startAngle = -120;
+            const endAngle = startAngle + (percent / 100) * 240;
+
+            const centerX = 200;
+            const centerY = 180;
+            const radius = 140;
+
+            const startRad = (startAngle - 90) * Math.PI / 180;
+            const endRad = (endAngle - 90) * Math.PI / 180;
+
+            const startX = centerX + radius * Math.cos(startRad);
+            const startY = centerY + radius * Math.sin(startRad);
+            const endX = centerX + radius * Math.cos(endRad);
+            const endY = centerY + radius * Math.sin(endRad);
+
+            const largeArc = (endAngle - startAngle) > 180 ? 1 : 0;
+
+            if (percent > 0) {
+                progressArc.setAttribute('d', `M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArc} 1 ${endX} ${endY}`);
+            } else {
+                progressArc.setAttribute('d', '');
+            }
+        }
+
+        // Show progress panel
+        function showProgress() {
+            progressPanel.classList.remove('hidden');
+        }
+
+        // Show output panel
+        function showOutput(url) {
+            setProcessingState(false);
+            outputPanel.classList.add('visible');
+            downloadBtn.href = url;
+        }
+
+        // Hide output panel
+        function hideOutput() {
+            outputPanel.classList.remove('visible');
+        }
+
+        // Show error
+        function showError(message) {
+            setProcessingState(false);
+            errorMessage.textContent = message;
+            errorPanel.classList.add('visible');
+        }
+
+        // Hide error
+        function hideError() {
+            errorPanel.classList.remove('visible');
+        }
+
+        // Reset UI
+        function resetUI() {
+            stopPolling();
+            hideError();
+            hideOutput();
+            progressPanel.classList.add('hidden');
+            setProcessingState(false);
+            updateProgress(0, 'queued');
+            currentJobId = null;
+        }
+
+        // Set processing state
+        function setProcessingState(processing) {
+            document.body.classList.toggle('processing', processing);
+            submitBtn.disabled = processing;
+            submitBtn.textContent = processing ? 'Processing...' : 'Acquire Signal';
+        }
+
+        // Initialize on load
+        init();
+    </script>
+</body>
+</html>

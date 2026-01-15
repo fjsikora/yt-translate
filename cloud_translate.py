@@ -28,7 +28,9 @@ import replicate
 import yt_dlp
 from deep_translator import GoogleTranslator
 from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from pydantic import BaseModel
 
@@ -105,6 +107,20 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# CORS middleware for API access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Serve static files
+STATIC_DIR = Path(__file__).parent / "static"
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 # --- Helper Functions ---
@@ -331,6 +347,12 @@ async def process_translation(job_id: str, youtube_url: str, target_language: st
 
 
 # --- API Endpoints ---
+
+@app.get("/")
+async def root():
+    """Redirect to frontend."""
+    return RedirectResponse(url="/static/index.html")
+
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
