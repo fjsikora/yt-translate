@@ -391,6 +391,70 @@ def get_preview_signed_url(storage_path: str, expires_in: int = 3600) -> str:
     return result.get("signedURL", "")
 
 
+# --- Authentication Operations ---
+
+def signup_user(email: str, password: str) -> dict:
+    """
+    Create a new user in Supabase Auth.
+
+    Args:
+        email: User's email address
+        password: User's password
+
+    Returns:
+        Dict with user info and session tokens:
+        {
+            "user_id": str,
+            "email": str,
+            "access_token": str,
+            "refresh_token": str
+        }
+
+    Raises:
+        ValueError: If signup fails (email already exists, invalid email, weak password)
+    """
+    client = get_supabase_client()
+
+    try:
+        result = client.auth.sign_up({
+            "email": email,
+            "password": password
+        })
+
+        if result.user is None:
+            raise ValueError("Signup failed: no user returned")
+
+        if result.session is None:
+            # User created but email confirmation required
+            # Still return user info but without session tokens
+            return {
+                "user_id": result.user.id,
+                "email": result.user.email or email,
+                "access_token": "",
+                "refresh_token": "",
+                "email_confirmed": False
+            }
+
+        return {
+            "user_id": result.user.id,
+            "email": result.user.email or email,
+            "access_token": result.session.access_token,
+            "refresh_token": result.session.refresh_token,
+            "email_confirmed": True
+        }
+
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "already registered" in error_msg or "already exists" in error_msg:
+            raise ValueError("Email already registered")
+        elif "invalid" in error_msg and "email" in error_msg:
+            raise ValueError("Invalid email format")
+        elif "password" in error_msg:
+            raise ValueError("Password does not meet requirements (minimum 6 characters)")
+        else:
+            raise ValueError(f"Signup failed: {str(e)}")
+
+
 # --- Connection Test ---
 
 def test_connection() -> bool:
