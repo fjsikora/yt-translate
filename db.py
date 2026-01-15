@@ -342,6 +342,7 @@ def list_translation_jobs_by_user(user_id: str) -> list[dict]:
 # --- Storage Operations ---
 
 PREVIEW_BUCKET = "previews"
+TRANSLATIONS_BUCKET = "translations"
 
 
 def upload_preview_to_storage(preview_id: str, file_path: str) -> str:
@@ -385,6 +386,65 @@ def get_preview_signed_url(storage_path: str, expires_in: int = 3600) -> str:
     Args:
         storage_path: Full storage path (e.g., "previews/{preview_id}/preview.mp4")
         expires_in: URL expiration time in seconds (default: 1 hour)
+
+    Returns:
+        Signed URL for accessing the file
+    """
+    client = get_supabase_client()
+
+    # Extract bucket and path
+    parts = storage_path.split("/", 1)
+    if len(parts) != 2:
+        raise ValueError(f"Invalid storage path: {storage_path}")
+
+    bucket = parts[0]
+    path = parts[1]
+
+    result = client.storage.from_(bucket).create_signed_url(path, expires_in)
+    return result.get("signedURL", "")
+
+
+def upload_translation_to_storage(translation_job_id: str, file_path: str) -> str:
+    """
+    Upload a full translation video file to Supabase Storage.
+
+    Args:
+        translation_job_id: UUID of the translation job (used in storage path)
+        file_path: Local path to the video file to upload
+
+    Returns:
+        Storage path of the uploaded file (e.g., "translations/{job_id}/translation.mp4")
+
+    Raises:
+        Exception: If upload fails
+    """
+    client = get_supabase_client()
+
+    # Storage path: translations/{translation_job_id}/translation.mp4
+    storage_path = f"{translation_job_id}/translation.mp4"
+
+    # Read file and upload
+    with open(file_path, "rb") as f:
+        file_content = f.read()
+
+    # Upload to Supabase Storage
+    client.storage.from_(TRANSLATIONS_BUCKET).upload(
+        path=storage_path,
+        file=file_content,
+        file_options={"content-type": "video/mp4"}
+    )
+
+    # Return the full storage path
+    return f"{TRANSLATIONS_BUCKET}/{storage_path}"
+
+
+def get_translation_signed_url(storage_path: str, expires_in: int = 86400) -> str:
+    """
+    Get a signed URL for accessing a translation file.
+
+    Args:
+        storage_path: Full storage path (e.g., "translations/{job_id}/translation.mp4")
+        expires_in: URL expiration time in seconds (default: 24 hours)
 
     Returns:
         Signed URL for accessing the file

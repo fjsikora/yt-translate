@@ -1441,8 +1441,11 @@ async def process_full_translation(translation_job_id: str, video_url: str, targ
     """
     Background task to process a full video translation after payment.
 
-    This is a placeholder that will be fully implemented in US-015.
-    For now, it updates status to indicate processing has started.
+    Processes the entire video duration (no 60-second limit).
+    Pipeline: download -> transcribe -> translate -> TTS -> merge -> upload
+
+    Note: Could optimize by reusing preview transcription for first 60 seconds,
+    but for simplicity we re-process the entire video to ensure quality.
     """
     try:
         # Initialize job tracking in memory for helper functions
@@ -1461,11 +1464,57 @@ async def process_full_translation(translation_job_id: str, video_url: str, targ
             stage="initializing"
         )
 
-        # Full implementation in US-015 - for now just mark as processing
-        # The actual pipeline will process the entire video duration
+        # 1. Download full video (no duration limit)
+        db.update_translation_job(translation_job_id, stage="download", progress=5)
+        video_path, audio_path, info = await download_video(
+            video_url, translation_job_id, duration_limit=None
+        )
+        db.update_translation_job(translation_job_id, progress=25)
+
+        # 2. Transcribe audio
+        db.update_translation_job(translation_job_id, stage="transcribe", progress=30)
+        transcript = await transcribe_audio(audio_path, translation_job_id)
+        db.update_translation_job(translation_job_id, progress=45)
+
+        # 3. Translate text
+        db.update_translation_job(translation_job_id, stage="translate", progress=50)
+        translated = await translate_text(transcript, target_language, translation_job_id)
+        db.update_translation_job(translation_job_id, progress=55)
+
+        # 4. Synthesize speech (TTS with voice cloning)
+        db.update_translation_job(translation_job_id, stage="synthesize", progress=60)
+        new_audio = await synthesize_speech(translated, audio_path, target_language, translation_job_id)
+        db.update_translation_job(translation_job_id, progress=85)
+
+        # 5. Merge translated audio with video
+        db.update_translation_job(translation_job_id, stage="merge", progress=90)
+        output_path = await merge_audio_video(video_path, new_audio, translation_job_id, info["title"])
+        db.update_translation_job(translation_job_id, progress=95)
+
+        # 6. Upload to Supabase Storage
+        db.update_translation_job(translation_job_id, stage="upload", progress=95)
+        storage_path = db.upload_translation_to_storage(translation_job_id, str(output_path))
+
+        # 7. Update job as completed with file path
+        db.update_translation_job(
+            translation_job_id,
+            status="completed",
+            progress=100,
+            stage="done",
+            output_file_path=storage_path
+        )
+
+        # Update in-memory job
+        update_job(
+            translation_job_id,
+            status="completed",
+            progress=100,
+            stage="done",
+            output_file=str(output_path)
+        )
 
     except Exception as e:
-        # Update database state on failure
+        # Update both database and in-memory state
         db.update_translation_job(
             translation_job_id,
             status="failed",
