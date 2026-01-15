@@ -1020,6 +1020,105 @@ async def login(request: LoginRequest):
         )
 
 
+# Configuration for OAuth redirect URL
+OAUTH_REDIRECT_URL = os.getenv("OAUTH_REDIRECT_URL", "http://localhost:8000/auth/callback")
+
+
+@app.get("/auth/google")
+async def google_oauth_redirect():
+    """
+    Redirect to Google OAuth for sign-in.
+
+    Initiates the Google OAuth flow by redirecting the user to Google's
+    authorization page. After successful authentication, the user will be
+    redirected back to /auth/callback.
+
+    Returns:
+        RedirectResponse to Google OAuth URL
+    """
+    try:
+        oauth_url = db.get_google_oauth_url(OAUTH_REDIRECT_URL)
+        return RedirectResponse(url=oauth_url, status_code=302)
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to initiate Google OAuth: {str(e)}"
+        )
+
+
+@app.get("/auth/callback")
+async def oauth_callback(code: Optional[str] = None, error: Optional[str] = None):
+    """
+    Handle OAuth callback from Google.
+
+    After Google authentication, this endpoint receives the authorization code
+    and exchanges it for session tokens. Creates a profile for new users.
+
+    Args:
+        code: Authorization code from OAuth provider
+        error: Error message if OAuth failed
+
+    Returns:
+        AuthResponse with user_id, email, and session tokens
+    """
+    # Handle OAuth errors
+    if error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"OAuth authentication failed: {error}"
+        )
+
+    if not code:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing authorization code"
+        )
+
+    try:
+        # Exchange code for session
+        auth_result = db.exchange_oauth_code(code)
+
+        user_id = auth_result["user_id"]
+        email = auth_result["email"]
+        is_new_user = auth_result.get("is_new_user", False)
+
+        # Create profile for new OAuth users
+        if is_new_user:
+            try:
+                db.create_profile(
+                    user_id=user_id,
+                    email=email,
+                    tos_accepted=True  # ToS acceptance implicit in OAuth signup
+                )
+            except Exception as profile_error:
+                # Log but don't fail - user can still continue
+                print(f"Warning: Failed to create profile for OAuth user {user_id}: {profile_error}")
+
+        return AuthResponse(
+            user_id=user_id,
+            email=email,
+            access_token=auth_result["access_token"],
+            refresh_token=auth_result["refresh_token"]
+        )
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"OAuth callback failed: {str(e)}"
+        )
+
+
 @app.post("/translate", response_model=JobStatus)
 async def start_translation(request: TranslateRequest, background_tasks: BackgroundTasks):
     """
