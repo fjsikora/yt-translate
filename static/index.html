@@ -507,6 +507,147 @@
             color: var(--bg-deep);
         }
 
+        /* Preview Player Panel */
+        .preview-player-panel {
+            display: none;
+        }
+
+        .preview-player-panel.visible {
+            display: block;
+            animation: panel-reveal 0.5s ease-out;
+        }
+
+        .preview-video-container {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            margin: 0 auto 1.5rem;
+            background: #000;
+            border-radius: 4px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+
+        .preview-video-container video {
+            width: 100%;
+            display: block;
+        }
+
+        .preview-badge {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            padding: 0.4rem 0.8rem;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid var(--phosphor-green);
+            border-radius: 3px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: var(--phosphor-green);
+            letter-spacing: 0.1em;
+            text-shadow: 0 0 5px var(--phosphor-green-glow);
+        }
+
+        .preview-cta-section {
+            text-align: center;
+            padding: 1.5rem;
+            background: rgba(255, 170, 0, 0.05);
+            border: 1px solid var(--amber-dim);
+            border-radius: 4px;
+        }
+
+        .preview-price-display {
+            margin-bottom: 1.5rem;
+        }
+
+        .preview-price-label {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-dim);
+            letter-spacing: 0.15em;
+            margin-bottom: 0.5rem;
+        }
+
+        .preview-price-value {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 2.5rem;
+            font-weight: 900;
+            color: var(--amber);
+            text-shadow: 0 0 20px var(--amber-glow);
+            animation: price-pulse 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes price-pulse {
+            0% { opacity: 0.8; }
+            100% { opacity: 1; }
+        }
+
+        .get-full-video-btn {
+            display: inline-block;
+            padding: 1.25rem 3rem;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            background: var(--amber);
+            color: var(--bg-deep);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            animation: cta-pulse 2s ease-in-out infinite;
+        }
+
+        .get-full-video-btn:hover:not(:disabled) {
+            transform: scale(1.05);
+            box-shadow: 0 0 40px var(--amber-glow);
+        }
+
+        .get-full-video-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            animation: none;
+        }
+
+        @keyframes cta-pulse {
+            0%, 100% { box-shadow: 0 0 20px var(--amber-glow); }
+            50% { box-shadow: 0 0 40px var(--amber-glow), 0 0 60px var(--amber-glow); }
+        }
+
+        .preview-note {
+            margin-top: 1rem;
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            letter-spacing: 0.05em;
+        }
+
+        .preview-note strong {
+            color: var(--phosphor-green);
+        }
+
+        .restart-preview-btn {
+            display: block;
+            margin: 1.5rem auto 0;
+            padding: 0.75rem 2rem;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            background: transparent;
+            border: 1px solid var(--text-dim);
+            color: var(--text-dim);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .restart-preview-btn:hover {
+            border-color: var(--phosphor-green);
+            color: var(--phosphor-green);
+        }
+
         /* Video Info Panel */
         .video-info-display {
             display: none;
@@ -1006,6 +1147,38 @@
             </div>
         </section>
 
+        <!-- Preview Player Panel -->
+        <section class="panel preview-player-panel" id="preview-player-panel">
+            <div class="panel-header">
+                <div class="status-light"></div>
+                <span class="panel-title">Preview Ready</span>
+            </div>
+            <div class="panel-content">
+                <div class="preview-video-container">
+                    <span class="preview-badge">60 SEC PREVIEW</span>
+                    <video id="preview-video" controls playsinline>
+                        <source src="" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
+                <div class="preview-cta-section">
+                    <div class="preview-price-display">
+                        <div class="preview-price-label">FULL VIDEO</div>
+                        <div class="preview-price-value" id="preview-full-price">$0.00</div>
+                    </div>
+                    <button class="get-full-video-btn" id="get-full-video-btn">
+                        Get Full Video
+                    </button>
+                    <p class="preview-note">
+                        <strong>Includes:</strong> Complete translated video • Unlimited downloads • High quality MP4
+                    </p>
+                </div>
+                <button class="restart-preview-btn" id="restart-preview-btn">
+                    Try Another Video
+                </button>
+            </div>
+        </section>
+
         <!-- Output Panel -->
         <section class="panel output-panel" id="output-panel">
             <div class="panel-header">
@@ -1049,6 +1222,7 @@
         let pollInterval = null;
         let currentVideoInfo = null;
         let sessionId = generateSessionId();
+        let currentUser = null; // Will be populated when user logs in (US-024)
 
         // Generate a unique session ID for guest users
         function generateSessionId() {
@@ -1082,6 +1256,13 @@
         const needle = document.getElementById('needle');
         const progressArc = document.getElementById('progress-arc');
         const previewBtn = document.getElementById('preview-btn');
+
+        // Preview Player Elements
+        const previewPlayerPanel = document.getElementById('preview-player-panel');
+        const previewVideo = document.getElementById('preview-video');
+        const previewFullPrice = document.getElementById('preview-full-price');
+        const getFullVideoBtn = document.getElementById('get-full-video-btn');
+        const restartPreviewBtn = document.getElementById('restart-preview-btn');
 
         // Video Info Elements
         const videoInfoLoading = document.getElementById('video-info-loading');
@@ -1166,6 +1347,8 @@
             fetchInfoBtn.addEventListener('click', fetchVideoInfo);
             previewBtn.addEventListener('click', startPreview);
             retryBtn.addEventListener('click', resetUI);
+            getFullVideoBtn.addEventListener('click', handleGetFullVideo);
+            restartPreviewBtn.addEventListener('click', resetUI);
             urlInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') fetchVideoInfo();
             });
@@ -1378,24 +1561,67 @@
             }, 2000);
         }
 
-        // Show preview complete state (placeholder for US-023 - Preview Player)
+        // Show preview complete state with video player
         function showPreviewComplete(data) {
             // Mark all stages complete
             updateProgress(100, 'done');
 
-            // Store preview data for US-023
+            // Store preview data for later use
             window.currentPreviewData = data;
 
-            // For now, show the output panel with a message
-            // Full preview player will be implemented in US-023
+            // Hide progress panel and other panels
             progressPanel.classList.add('hidden');
-            outputPanel.classList.add('visible');
-            document.querySelector('.success-message').textContent = 'PREVIEW READY';
-            downloadBtn.textContent = 'View Preview';
-            downloadBtn.href = data.preview_url || '#';
-            downloadBtn.target = '_blank';
+            outputPanel.classList.remove('visible');
+
+            // Set up video player with preview URL
+            if (data.preview_url) {
+                previewVideo.querySelector('source').src = data.preview_url;
+                previewVideo.load();
+            }
+
+            // Display the price for full video
+            if (data.price_quote) {
+                previewFullPrice.textContent = formatPrice(data.price_quote);
+            } else if (currentVideoInfo && currentVideoInfo.price_quote) {
+                previewFullPrice.textContent = formatPrice(currentVideoInfo.price_quote);
+            }
+
+            // Show the preview player panel
+            previewPlayerPanel.classList.add('visible');
 
             setPreviewStartingState(false);
+        }
+
+        // Handle "Get Full Video" button click
+        function handleGetFullVideo() {
+            // Check if user is logged in
+            if (!currentUser) {
+                // User not logged in - trigger auth flow (implemented in US-024)
+                showAuthModal();
+            } else {
+                // User is logged in - proceed to checkout (implemented in US-025)
+                proceedToCheckout();
+            }
+        }
+
+        // Show auth modal (placeholder for US-024)
+        function showAuthModal() {
+            // This will be implemented in US-024
+            // For now, show a message indicating login is required
+            alert('Please sign in to purchase the full video. Auth modal coming in US-024!');
+        }
+
+        // Proceed to checkout (placeholder for US-025)
+        function proceedToCheckout() {
+            // This will be implemented in US-025
+            console.log('Proceeding to checkout...');
+        }
+
+        // Hide preview player panel
+        function hidePreviewPlayerPanel() {
+            previewPlayerPanel.classList.remove('visible');
+            previewVideo.pause();
+            previewVideo.querySelector('source').src = '';
         }
 
         // Poll for status (legacy - kept for full translation jobs)
@@ -1529,6 +1755,7 @@
             hideOutput();
             hideVideoInfo();
             hideLanguagePanel();
+            hidePreviewPlayerPanel();
             progressPanel.classList.add('hidden');
             setFetchingState(false);
             setPreviewStartingState(false);
@@ -1537,6 +1764,7 @@
             currentPreviewId = null;
             currentVideoInfo = null;
             selectedLanguage = null;
+            window.currentPreviewData = null;
             document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('selected'));
             updatePreviewButton();
             // Reset output panel text
