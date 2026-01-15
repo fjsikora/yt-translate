@@ -126,6 +126,11 @@ class SignupRequest(BaseModel):
     password: str
 
 
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
 class AuthResponse(BaseModel):
     user_id: str
     email: str
@@ -977,6 +982,41 @@ async def signup(request: SignupRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Signup failed: {str(e)}"
+        )
+
+
+@app.post("/auth/login", response_model=AuthResponse)
+async def login(request: LoginRequest):
+    """
+    Log in an existing user.
+
+    Returns:
+        AuthResponse with user_id, email, and session tokens
+
+    Raises:
+        401: Invalid credentials
+    """
+    try:
+        # Authenticate with Supabase Auth
+        auth_result = db.login_user(request.email, request.password)
+
+        return AuthResponse(
+            user_id=auth_result["user_id"],
+            email=auth_result["email"],
+            access_token=auth_result["access_token"],
+            refresh_token=auth_result["refresh_token"]
+        )
+
+    except ValueError as e:
+        # Invalid credentials
+        raise HTTPException(
+            status_code=401,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Login failed: {str(e)}"
         )
 
 
