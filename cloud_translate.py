@@ -562,6 +562,15 @@ async def root():
     return RedirectResponse(url="/static/index.html")
 
 
+@app.get("/success")
+async def success_page(request: Request):
+    """Redirect to payment success page, preserving query parameters."""
+    query_string = str(request.query_params)
+    if query_string:
+        return RedirectResponse(url=f"/static/success.html?{query_string}")
+    return RedirectResponse(url="/static/success.html")
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint for Self-hosted/load balancers."""
