@@ -1,0 +1,439 @@
+{
+  "project": "video-translation-monetization",
+  "branchName": "ralph/video-translation-monetization",
+  "description": "Implement pay-per-video monetization with free 60-second preview, Supabase auth, and Stripe payments",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Database Schema Setup",
+      "description": "As a developer, I need database tables to store users, preview jobs, and translation jobs so that data persists across sessions.",
+      "acceptanceCriteria": [
+        "profiles table created with id, email, tos_accepted_at, created_at",
+        "preview_jobs table created with session_id, user_id, video_url, target_language, status, preview_file_path",
+        "translation_jobs table created with user_id, preview_job_id, price_cents, stripe fields, status, output_file_path",
+        "Row Level Security (RLS) enabled on all tables",
+        "Users can only read their own records",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Completed in iteration 1. SQL migration file: supabase_migrations/migrations/001_initial_schema.sql"
+    },
+    {
+      "id": "US-002",
+      "title": "Supabase Client Integration",
+      "description": "As a developer, I need Supabase Python client configured so that the backend can interact with the database.",
+      "acceptanceCriteria": [
+        "supabase package added to requirements-cloud.txt",
+        "Supabase client initialized with env vars (SUPABASE_URL, SUPABASE_SERVICE_KEY)",
+        "Helper functions for CRUD operations on each table",
+        "Connection tested successfully",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Completed in iteration 2. Created db.py with full CRUD helpers. Renamed supabase/ to supabase_migrations/ to fix import conflict."
+    },
+    {
+      "id": "US-003",
+      "title": "Video Info Extraction Endpoint",
+      "description": "As a user, I want to paste a video URL and see its title and duration before committing to a preview.",
+      "acceptanceCriteria": [
+        "POST /video-info endpoint accepts video_url",
+        "Returns video_title, duration_seconds, thumbnail_url (if available)",
+        "Returns price_quote for full translation (calculated from duration)",
+        "Handles invalid URLs with appropriate error message",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Completed in iteration 3. Added /video-info endpoint with VideoInfoRequest/Response models and calculate_price_cents() helper."
+    },
+    {
+      "id": "US-004",
+      "title": "Preview Job Creation",
+      "description": "As a guest user, I want to start a free preview translation so I can evaluate the quality before paying.",
+      "acceptanceCriteria": [
+        "POST /preview endpoint accepts video_url, target_language, session_id",
+        "Creates preview_job record in Supabase",
+        "Starts background task to process first 60 seconds only",
+        "Returns preview_id and initial status",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "Completed in iteration 4. Added /preview endpoint with PreviewRequest/PreviewResponse models and process_preview background task."
+    },
+    {
+      "id": "US-005",
+      "title": "Partial Video Download (60 seconds)",
+      "description": "As a developer, I need to download only the first 60 seconds of a video for preview processing.",
+      "acceptanceCriteria": [
+        "Modify download_video function to accept optional duration_limit parameter",
+        "Uses ffmpeg to extract only first 60 seconds",
+        "Audio extraction limited to 60 seconds",
+        "Works with all yt-dlp supported sites",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "Completed in iteration 5. Added duration_limit param to download_video(), ffmpeg trimming for video/audio, PREVIEW_DURATION_SECONDS constant."
+    },
+    {
+      "id": "US-006",
+      "title": "Preview Processing Pipeline",
+      "description": "As a developer, I need the translation pipeline to work with partial videos for preview generation.",
+      "acceptanceCriteria": [
+        "process_preview function handles 60-second clips",
+        "Transcription, translation, TTS all work on partial audio",
+        "Preview video saved to Supabase Storage",
+        "preview_job status updated to completed with file path",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "Completed in iteration 6. Implemented full pipeline in process_preview(), added upload_preview_to_storage() and get_preview_signed_url() to db.py."
+    },
+    {
+      "id": "US-007",
+      "title": "Preview Status Endpoint",
+      "description": "As a user, I want to check the status of my preview so I know when it's ready.",
+      "acceptanceCriteria": [
+        "GET /preview/{preview_id} returns status, progress, stage",
+        "When completed, returns preview_url and price_quote",
+        "Guests can access by session_id match",
+        "Logged-in users can access by user_id match",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "Completed in iteration 7. Added GET /preview/{preview_id} endpoint with session_id/user_id access control."
+    },
+    {
+      "id": "US-008",
+      "title": "Preview Video Serving",
+      "description": "As a user, I want to watch my preview video so I can evaluate the translation quality.",
+      "acceptanceCriteria": [
+        "GET /preview/{preview_id}/video streams the preview file",
+        "Generates signed URL from Supabase Storage",
+        "URL expires after 1 hour",
+        "Only accessible to preview owner (session_id or user_id)",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "Completed in iteration 8. Added GET /preview/{preview_id}/video endpoint with signed URL redirect."
+    },
+    {
+      "id": "US-009",
+      "title": "User Authentication - Signup",
+      "description": "As a guest, I want to create an account so I can purchase full translations.",
+      "acceptanceCriteria": [
+        "POST /auth/signup accepts email, password",
+        "Creates user in Supabase Auth",
+        "Creates profile record with tos_accepted_at timestamp",
+        "Returns session token",
+        "Validates email format and password strength",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "Completed in iteration 9. Added /auth/signup endpoint with email/password validation, Supabase Auth signup_user(), profile creation with tos_accepted_at."
+    },
+    {
+      "id": "US-010",
+      "title": "User Authentication - Login",
+      "description": "As a returning user, I want to log in so I can access my account.",
+      "acceptanceCriteria": [
+        "POST /auth/login accepts email, password",
+        "Returns session token on success",
+        "Returns 401 on invalid credentials",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "Completed in iteration 10. Added /auth/login endpoint with Supabase Auth sign_in_with_password()."
+    },
+    {
+      "id": "US-011",
+      "title": "User Authentication - Google OAuth",
+      "description": "As a user, I want to sign in with Google for faster account creation.",
+      "acceptanceCriteria": [
+        "GET /auth/google redirects to Google OAuth",
+        "GET /auth/callback handles OAuth callback",
+        "Creates profile if new user",
+        "Returns session token",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": "Completed in iteration 11. Added /auth/google redirect endpoint, /auth/callback handler, get_google_oauth_url() and exchange_oauth_code() in db.py."
+    },
+    {
+      "id": "US-012",
+      "title": "Authentication Middleware",
+      "description": "As a developer, I need middleware to protect routes that require authentication.",
+      "acceptanceCriteria": [
+        "JWT verification middleware created",
+        "Extracts user_id from valid token",
+        "Returns 401 for missing/invalid token",
+        "get_current_user dependency for FastAPI routes",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "Completed in iteration 12. Added verify_jwt() to db.py, CurrentUser model, get_current_user and get_current_user_optional FastAPI dependencies."
+    },
+    {
+      "id": "US-013",
+      "title": "Stripe Checkout Session Creation",
+      "description": "As a logged-in user, I want to pay for a full translation so I can get the complete video.",
+      "acceptanceCriteria": [
+        "POST /checkout/create accepts preview_id",
+        "Requires authentication",
+        "Creates translation_job record with price_cents",
+        "Creates Stripe Checkout Session with correct amount",
+        "Returns checkout_url for redirect",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": "Completed in iteration 13. Added stripe to requirements, create_stripe_checkout_session() to db.py, POST /checkout/create endpoint with auth."
+    },
+    {
+      "id": "US-014",
+      "title": "Stripe Webhook Handler",
+      "description": "As a developer, I need to handle Stripe webhooks to confirm payment and start processing.",
+      "acceptanceCriteria": [
+        "POST /webhook/stripe receives Stripe events",
+        "Verifies webhook signature",
+        "On checkout.session.completed: updates translation_job payment_status to paid",
+        "On payment success: triggers full translation processing",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": true,
+      "notes": "Completed in iteration 14. Added POST /webhook/stripe endpoint with signature verification, checkout.session.completed handler, and process_full_translation trigger."
+    },
+    {
+      "id": "US-015",
+      "title": "Full Translation Processing",
+      "description": "As a developer, I need to process full video translations after payment confirmation.",
+      "acceptanceCriteria": [
+        "process_full_translation function created",
+        "Reuses preview transcription for first 60 seconds if available",
+        "Processes entire video duration",
+        "Uploads output to Supabase Storage",
+        "Updates translation_job status and output path",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": true,
+      "notes": "Completed in iteration 15. Full pipeline implemented: download -> transcribe -> translate -> TTS -> merge -> upload. Added upload_translation_to_storage() and get_translation_signed_url() to db.py."
+    },
+    {
+      "id": "US-016",
+      "title": "Translation Job Status Endpoint",
+      "description": "As a user, I want to check the status of my paid translation.",
+      "acceptanceCriteria": [
+        "GET /jobs/{job_id} returns status, progress, stage",
+        "Requires authentication",
+        "Only returns jobs owned by current user",
+        "When completed, returns download_url",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": true,
+      "notes": "Completed in iteration 16. Added GET /jobs/{job_id} endpoint with auth, ownership verification, download_url on completion."
+    },
+    {
+      "id": "US-017",
+      "title": "Translation Download Endpoint",
+      "description": "As a user, I want to download my completed translation.",
+      "acceptanceCriteria": [
+        "GET /jobs/{job_id}/download returns signed URL",
+        "Requires authentication",
+        "Verifies job belongs to current user",
+        "Verifies job status is completed",
+        "URL expires after 24 hours",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": true,
+      "notes": "Completed in iteration 17. Added GET /jobs/{job_id}/download endpoint with TranslationDownloadResponse model, auth, ownership verification, and 24h signed URL expiration."
+    },
+    {
+      "id": "US-018",
+      "title": "User Jobs List Endpoint",
+      "description": "As a user, I want to see all my translation jobs in one place.",
+      "acceptanceCriteria": [
+        "GET /jobs returns list of user's translation jobs",
+        "Requires authentication",
+        "Includes status, video_title, created_at, download availability",
+        "Ordered by created_at descending",
+        "Typecheck passes"
+      ],
+      "priority": 18,
+      "passes": true,
+      "notes": "Completed in iteration 18. Added GET /jobs endpoint with UserJobListItem model, auth required, ordered by created_at desc."
+    },
+    {
+      "id": "US-019",
+      "title": "IP-Based Rate Limiting",
+      "description": "As a developer, I need to prevent preview abuse by limiting requests per IP.",
+      "acceptanceCriteria": [
+        "Rate limiting middleware added",
+        "Limits preview requests to 5 per hour per IP",
+        "Returns 429 Too Many Requests when exceeded",
+        "Does not affect authenticated users paid jobs",
+        "Typecheck passes"
+      ],
+      "priority": 19,
+      "passes": true,
+      "notes": "Completed in iteration 19. Sliding window rate limiter for /preview endpoint. Configurable via PREVIEW_RATE_LIMIT and PREVIEW_RATE_WINDOW env vars."
+    },
+    {
+      "id": "US-020",
+      "title": "Frontend - Video Info Display",
+      "description": "As a user, I want to see video details after pasting a URL.",
+      "acceptanceCriteria": [
+        "Input field for video URL",
+        "On paste/submit, calls /video-info endpoint",
+        "Displays: thumbnail, title, duration, price quote",
+        "Shows Preview FREE button",
+        "Typecheck passes",
+        "Verify in browser using MCP Toolkit browser tools"
+      ],
+      "priority": 20,
+      "passes": true,
+      "notes": "Completed in iteration 20. Added video info display with thumbnail, title, duration, price. Preview FREE button in language panel."
+    },
+    {
+      "id": "US-021",
+      "title": "Frontend - Language Selection",
+      "description": "As a user, I want to select a target language for translation.",
+      "acceptanceCriteria": [
+        "Language dropdown/grid shown after video info loaded",
+        "Shows all supported languages",
+        "Selection required before preview can start",
+        "Typecheck passes",
+        "Verify in browser using MCP Toolkit browser tools"
+      ],
+      "priority": 21,
+      "passes": true,
+      "notes": "Completed in iteration 21. Language selection was already implemented as part of US-020. Language grid with 23 languages, flag icons, amber selection highlight, and preview button state management all functional."
+    },
+    {
+      "id": "US-022",
+      "title": "Frontend - Preview Progress",
+      "description": "As a user, I want to see preview processing progress.",
+      "acceptanceCriteria": [
+        "Progress bar shows current stage and percentage",
+        "Polls /preview/{id} endpoint every 2 seconds",
+        "Updates UI in real-time",
+        "Shows error message if preview fails",
+        "Typecheck passes",
+        "Verify in browser using MCP Toolkit browser tools"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-023",
+      "title": "Frontend - Preview Player",
+      "description": "As a user, I want to watch my preview video and see the price for full translation.",
+      "acceptanceCriteria": [
+        "Video player shows 60-second preview",
+        "Price displayed prominently: Full video: $X.XX",
+        "Get Full Video CTA button",
+        "Button triggers auth flow if not logged in",
+        "Typecheck passes",
+        "Verify in browser using MCP Toolkit browser tools"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-024",
+      "title": "Frontend - Auth Modal",
+      "description": "As a user, I want to create an account or log in to purchase.",
+      "acceptanceCriteria": [
+        "Modal appears when Get Full Video clicked (if not logged in)",
+        "Shows Google OAuth button (primary)",
+        "Shows email/password form (secondary)",
+        "Toggle between signup and login",
+        "ToS checkbox required for signup",
+        "Typecheck passes",
+        "Verify in browser using MCP Toolkit browser tools"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-025",
+      "title": "Frontend - Checkout Redirect",
+      "description": "As a logged-in user, I want to be redirected to Stripe to complete payment.",
+      "acceptanceCriteria": [
+        "Get Full Video calls /checkout/create when logged in",
+        "Redirects to Stripe Checkout URL",
+        "Shows loading state during redirect",
+        "Handles errors gracefully",
+        "Typecheck passes",
+        "Verify in browser using MCP Toolkit browser tools"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-026",
+      "title": "Frontend - Payment Success Page",
+      "description": "As a user, I want to see confirmation after successful payment.",
+      "acceptanceCriteria": [
+        "/success page shows Payment successful!",
+        "Shows translation job status",
+        "Auto-redirects to job progress view",
+        "Handles Stripe redirect parameters",
+        "Typecheck passes",
+        "Verify in browser using MCP Toolkit browser tools"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-027",
+      "title": "Frontend - Job Progress View",
+      "description": "As a user, I want to see my full translation progress after payment.",
+      "acceptanceCriteria": [
+        "Shows processing stages and progress",
+        "Polls /jobs/{id} endpoint",
+        "When complete, shows download button",
+        "Typecheck passes",
+        "Verify in browser using MCP Toolkit browser tools"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-028",
+      "title": "Frontend - User Dashboard",
+      "description": "As a logged-in user, I want to see all my past translations.",
+      "acceptanceCriteria": [
+        "/dashboard page lists all user's jobs",
+        "Shows: video title, language, status, date",
+        "Download button for completed jobs",
+        "Empty state for new users",
+        "Typecheck passes",
+        "Verify in browser using MCP Toolkit browser tools"
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
