@@ -880,6 +880,313 @@
             color: var(--phosphor-green);
         }
 
+        /* Dashboard Panel */
+        .dashboard-panel {
+            display: none;
+        }
+
+        .dashboard-panel.visible {
+            display: block;
+            animation: panel-reveal 0.5s ease-out;
+        }
+
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .dashboard-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--phosphor-green);
+            letter-spacing: 0.05em;
+            text-shadow: 0 0 10px var(--phosphor-green-glow);
+        }
+
+        .dashboard-subtitle {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-top: 0.25rem;
+        }
+
+        .dashboard-new-btn {
+            padding: 0.6rem 1.2rem;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            background: transparent;
+            border: 2px solid var(--phosphor-green);
+            color: var(--phosphor-green);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .dashboard-new-btn:hover {
+            background: var(--phosphor-green);
+            color: var(--bg-deep);
+            box-shadow: 0 0 20px var(--phosphor-green-glow);
+        }
+
+        /* Jobs List */
+        .jobs-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .job-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: rgba(0, 255, 102, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+
+        .job-item:hover {
+            border-color: var(--phosphor-green-dim);
+            background: rgba(0, 255, 102, 0.06);
+        }
+
+        .job-item-status {
+            flex-shrink: 0;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--text-dim);
+        }
+
+        .job-item-status.completed {
+            background: var(--phosphor-green);
+            box-shadow: 0 0 8px var(--phosphor-green-glow);
+        }
+
+        .job-item-status.processing {
+            background: var(--amber);
+            box-shadow: 0 0 8px var(--amber-glow);
+            animation: status-pulse 1.5s ease-in-out infinite;
+        }
+
+        .job-item-status.failed {
+            background: var(--red-alert);
+            box-shadow: 0 0 8px var(--red-glow);
+        }
+
+        .job-item-status.pending {
+            background: var(--text-dim);
+        }
+
+        .job-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .job-item-title {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 0.25rem;
+        }
+
+        .job-item-meta {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.7rem;
+            color: var(--text-dim);
+        }
+
+        .job-item-language {
+            padding: 0.15rem 0.5rem;
+            background: rgba(255, 170, 0, 0.1);
+            border: 1px solid var(--amber-dim);
+            border-radius: 3px;
+            color: var(--amber);
+            font-family: 'Space Mono', monospace;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+        }
+
+        .job-item-date {
+            color: var(--text-dim);
+        }
+
+        .job-item-actions {
+            flex-shrink: 0;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .job-item-btn {
+            padding: 0.5rem 0.8rem;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.7rem;
+            font-weight: 600;
+            background: transparent;
+            border: 1px solid var(--text-dim);
+            color: var(--text-dim);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-radius: 3px;
+            text-decoration: none;
+        }
+
+        .job-item-btn:hover {
+            border-color: var(--phosphor-green);
+            color: var(--phosphor-green);
+        }
+
+        .job-item-btn.download {
+            border-color: var(--phosphor-green);
+            color: var(--phosphor-green);
+        }
+
+        .job-item-btn.download:hover {
+            background: var(--phosphor-green);
+            color: var(--bg-deep);
+            box-shadow: 0 0 15px var(--phosphor-green-glow);
+        }
+
+        /* Empty State */
+        .dashboard-empty {
+            text-align: center;
+            padding: 3rem 2rem;
+        }
+
+        .dashboard-empty-icon {
+            font-size: 3rem;
+            color: var(--text-dim);
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        .dashboard-empty-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1rem;
+            color: var(--text-dim);
+            margin-bottom: 0.5rem;
+            letter-spacing: 0.05em;
+        }
+
+        .dashboard-empty-text {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            margin-bottom: 1.5rem;
+            opacity: 0.7;
+        }
+
+        .dashboard-empty-btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            background: transparent;
+            border: 2px solid var(--phosphor-green);
+            color: var(--phosphor-green);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .dashboard-empty-btn:hover {
+            background: var(--phosphor-green);
+            color: var(--bg-deep);
+            box-shadow: 0 0 20px var(--phosphor-green-glow);
+        }
+
+        /* Dashboard Loading */
+        .dashboard-loading {
+            text-align: center;
+            padding: 3rem 2rem;
+            color: var(--text-dim);
+        }
+
+        .dashboard-loading .loading-spinner {
+            margin: 0 auto 1rem;
+        }
+
+        /* User Nav */
+        .user-nav {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .user-nav-link {
+            padding: 0.5rem 0.8rem;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.7rem;
+            font-weight: 600;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid var(--border-color);
+            color: var(--text-dim);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-radius: 3px;
+            text-decoration: none;
+        }
+
+        .user-nav-link:hover {
+            border-color: var(--phosphor-green);
+            color: var(--phosphor-green);
+        }
+
+        .user-nav-link.active {
+            border-color: var(--phosphor-green);
+            color: var(--phosphor-green);
+        }
+
+        .user-email {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--phosphor-green);
+            padding: 0.5rem 0.8rem;
+            background: rgba(0, 255, 102, 0.05);
+            border: 1px solid var(--phosphor-green-dim);
+            border-radius: 3px;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 600px) {
+            .job-item {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .job-item-actions {
+                width: 100%;
+                margin-top: 0.75rem;
+            }
+
+            .job-item-btn {
+                flex: 1;
+                text-align: center;
+            }
+
+            .user-nav {
+                top: auto;
+                bottom: 1rem;
+                right: 1rem;
+            }
+        }
+
         /* Video Info Panel */
         .video-info-display {
             display: none;
@@ -1499,6 +1806,13 @@
     </style>
 </head>
 <body>
+    <!-- User Navigation (shown when logged in) -->
+    <nav class="user-nav hidden" id="user-nav">
+        <span class="user-email" id="user-nav-email"></span>
+        <a href="#dashboard" class="user-nav-link" id="nav-dashboard">Dashboard</a>
+        <button class="user-nav-link" id="nav-signout">Sign Out</button>
+    </nav>
+
     <div class="container">
         <!-- Header -->
         <header class="header">
@@ -1827,6 +2141,46 @@
             </div>
         </section>
 
+        <!-- Dashboard Panel -->
+        <section class="panel dashboard-panel hidden" id="dashboard-panel">
+            <div class="panel-header">
+                <div class="status-light"></div>
+                <span class="panel-title">Translation Archive</span>
+            </div>
+            <div class="panel-content">
+                <div class="dashboard-header">
+                    <div>
+                        <div class="dashboard-title">Your Translations</div>
+                        <div class="dashboard-subtitle">View and download your translated videos</div>
+                    </div>
+                    <button class="dashboard-new-btn" id="dashboard-new-btn">New Translation</button>
+                </div>
+
+                <!-- Loading State -->
+                <div class="dashboard-loading" id="dashboard-loading">
+                    <div class="loading-spinner"></div>
+                    <span>Loading translations...</span>
+                </div>
+
+                <!-- Jobs List -->
+                <div class="jobs-list" id="jobs-list">
+                    <!-- Jobs loaded dynamically -->
+                </div>
+
+                <!-- Empty State -->
+                <div class="dashboard-empty hidden" id="dashboard-empty">
+                    <div class="dashboard-empty-icon">&#x1F4FA;</div>
+                    <div class="dashboard-empty-title">No Translations Yet</div>
+                    <div class="dashboard-empty-text">
+                        Start by translating a video to see it here
+                    </div>
+                    <button class="dashboard-empty-btn" id="dashboard-empty-btn">
+                        Translate Your First Video
+                    </button>
+                </div>
+            </div>
+        </section>
+
         <!-- Output Panel -->
         <section class="panel output-panel" id="output-panel">
             <div class="panel-header">
@@ -1950,6 +2304,7 @@
         }
 
         // DOM Elements
+        const inputPanel = document.getElementById('input-panel');
         const urlInput = document.getElementById('youtube-url');
         const fetchInfoBtn = document.getElementById('fetch-info-btn');
         const tosCheckbox = document.getElementById('tos-agree');
@@ -1995,6 +2350,20 @@
         const jobErrorMessage = document.getElementById('job-error-message');
         const jobBackBtn = document.getElementById('job-back-btn');
 
+        // Dashboard elements
+        const dashboardPanel = document.getElementById('dashboard-panel');
+        const dashboardLoading = document.getElementById('dashboard-loading');
+        const jobsList = document.getElementById('jobs-list');
+        const dashboardEmpty = document.getElementById('dashboard-empty');
+        const dashboardNewBtn = document.getElementById('dashboard-new-btn');
+        const dashboardEmptyBtn = document.getElementById('dashboard-empty-btn');
+
+        // User Nav elements
+        const userNav = document.getElementById('user-nav');
+        const userNavEmail = document.getElementById('user-nav-email');
+        const navDashboard = document.getElementById('nav-dashboard');
+        const navSignout = document.getElementById('nav-signout');
+
         // Job tracking state
         let currentViewingJobId = null;
         let jobPollInterval = null;
@@ -2016,6 +2385,8 @@
             await loadLanguages();
             setupEventListeners();
             initAuthModal();
+            initDashboard();
+            initUserNav();
             initHashRouting();
             checkHashRoute();
         }
@@ -2487,6 +2858,9 @@
                 sessionStorage.setItem('user_email', data.email);
                 sessionStorage.setItem('user_id', data.user_id);
 
+                // Show user navigation
+                showUserNav();
+
                 // Close modal and proceed to checkout
                 hideAuthModal();
                 proceedToCheckout();
@@ -2565,6 +2939,9 @@
                 if (refreshToken) sessionStorage.setItem('refresh_token', refreshToken);
                 sessionStorage.setItem('user_email', userEmail);
                 sessionStorage.setItem('user_id', userId);
+
+                // Show user navigation
+                showUserNav();
 
                 // Clean up URL
                 window.history.replaceState({}, document.title, window.location.pathname);
@@ -2834,10 +3211,17 @@
                 return;
             }
 
-            // Check for dashboard route (to be implemented in US-028)
+            // Check for dashboard route
             if (hash === '#dashboard') {
-                // Will be implemented in US-028
+                showDashboard();
                 return;
+            }
+
+            // Default: show home if hash doesn't match known routes
+            // This ensures main page is shown when navigating to #
+            if (hash === '' || hash === '#') {
+                hideDashboardPanel();
+                hideJobProgressPanel();
             }
         }
 
@@ -3115,6 +3499,286 @@
             jobErrorSection.classList.remove('hidden');
             jobCompleteSection.classList.add('hidden');
             jobErrorMessage.textContent = message;
+        }
+
+        // ==========================================
+        // Dashboard Functions
+        // ==========================================
+
+        // Initialize dashboard event listeners
+        function initDashboard() {
+            dashboardNewBtn.addEventListener('click', goToHome);
+            dashboardEmptyBtn.addEventListener('click', goToHome);
+        }
+
+        // Initialize user navigation
+        function initUserNav() {
+            // Check if already logged in from session storage
+            const storedToken = sessionStorage.getItem('auth_token');
+            const storedEmail = sessionStorage.getItem('user_email');
+            const storedUserId = sessionStorage.getItem('user_id');
+
+            if (storedToken && storedEmail && storedUserId) {
+                currentUser = {
+                    user_id: storedUserId,
+                    email: storedEmail,
+                    access_token: storedToken,
+                    refresh_token: sessionStorage.getItem('refresh_token')
+                };
+                showUserNav();
+            }
+
+            // Sign out handler
+            navSignout.addEventListener('click', handleSignOut);
+        }
+
+        // Show user navigation bar
+        function showUserNav() {
+            if (currentUser && currentUser.email) {
+                userNavEmail.textContent = currentUser.email;
+                userNav.classList.remove('hidden');
+            }
+        }
+
+        // Hide user navigation bar
+        function hideUserNav() {
+            userNav.classList.add('hidden');
+        }
+
+        // Handle sign out
+        function handleSignOut() {
+            clearAuthState();
+            currentUser = null;
+            hideUserNav();
+            hideDashboardPanel();
+            window.location.hash = '';
+            resetUI();
+        }
+
+        // Go to home page
+        function goToHome() {
+            window.location.hash = '';
+            hideDashboardPanel();
+            resetUI();
+        }
+
+        // Show dashboard
+        async function showDashboard() {
+            // Ensure we have auth
+            if (!currentUser || !currentUser.access_token) {
+                const storedToken = sessionStorage.getItem('auth_token');
+                const storedEmail = sessionStorage.getItem('user_email');
+                const storedUserId = sessionStorage.getItem('user_id');
+                if (storedToken && storedEmail && storedUserId) {
+                    currentUser = {
+                        user_id: storedUserId,
+                        email: storedEmail,
+                        access_token: storedToken,
+                        refresh_token: sessionStorage.getItem('refresh_token')
+                    };
+                    showUserNav();
+                } else {
+                    showError('Please sign in to view your dashboard.');
+                    window.location.hash = '';
+                    return;
+                }
+            }
+
+            // Hide other panels
+            hideVideoInfo();
+            hideLanguagePanel();
+            hidePreviewPlayerPanel();
+            progressPanel.classList.add('hidden');
+            hideOutput();
+            hideError();
+            hideJobProgressPanel();
+            inputPanel.classList.add('hidden');
+
+            // Show dashboard panel
+            dashboardPanel.classList.remove('hidden');
+            dashboardPanel.classList.add('visible');
+
+            // Load jobs
+            await loadDashboardJobs();
+        }
+
+        // Hide dashboard panel
+        function hideDashboardPanel() {
+            dashboardPanel.classList.remove('visible');
+            dashboardPanel.classList.add('hidden');
+            inputPanel.classList.remove('hidden');
+        }
+
+        // Load jobs for dashboard
+        async function loadDashboardJobs() {
+            // Show loading state
+            dashboardLoading.style.display = 'block';
+            jobsList.innerHTML = '';
+            dashboardEmpty.classList.add('hidden');
+
+            try {
+                const response = await fetch('/jobs', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${currentUser.access_token}`
+                    }
+                });
+
+                if (response.status === 401) {
+                    clearAuthState();
+                    currentUser = null;
+                    hideUserNav();
+                    showError('Session expired. Please sign in again.');
+                    window.location.hash = '';
+                    return;
+                }
+
+                if (!response.ok) {
+                    throw new Error('Failed to load jobs');
+                }
+
+                const jobs = await response.json();
+                dashboardLoading.style.display = 'none';
+
+                if (jobs.length === 0) {
+                    dashboardEmpty.classList.remove('hidden');
+                } else {
+                    renderDashboardJobs(jobs);
+                }
+
+            } catch (error) {
+                console.error('Failed to load dashboard jobs:', error);
+                dashboardLoading.style.display = 'none';
+                dashboardEmpty.classList.remove('hidden');
+            }
+        }
+
+        // Render jobs list in dashboard
+        function renderDashboardJobs(jobs) {
+            jobsList.innerHTML = '';
+
+            jobs.forEach(job => {
+                const jobItem = document.createElement('div');
+                jobItem.className = 'job-item';
+
+                // Status indicator class
+                const statusClass = job.status || 'pending';
+
+                // Format date
+                const dateStr = formatJobDate(job.created_at);
+
+                // Get language name
+                const langName = getLanguageName(job.target_language) || job.target_language.toUpperCase();
+
+                // Build job item HTML
+                jobItem.innerHTML = `
+                    <div class="job-item-status ${statusClass}"></div>
+                    <div class="job-item-info">
+                        <div class="job-item-title">${escapeHtml(job.video_title || 'Untitled Video')}</div>
+                        <div class="job-item-meta">
+                            <span class="job-item-language">${job.target_language}</span>
+                            <span class="job-item-date">${dateStr}</span>
+                        </div>
+                    </div>
+                    <div class="job-item-actions">
+                        ${job.status === 'completed' && job.download_available ?
+                            `<button class="job-item-btn download" data-job-id="${job.job_id}" data-action="download">Download</button>` :
+                            `<button class="job-item-btn" data-job-id="${job.job_id}" data-action="view">View</button>`
+                        }
+                    </div>
+                `;
+
+                // Add click handlers
+                jobItem.querySelector('.job-item-btn').addEventListener('click', (e) => {
+                    const jobId = e.target.dataset.jobId;
+                    const action = e.target.dataset.action;
+                    if (action === 'download') {
+                        downloadJob(jobId);
+                    } else {
+                        viewJob(jobId);
+                    }
+                });
+
+                jobsList.appendChild(jobItem);
+            });
+        }
+
+        // Format job date for display
+        function formatJobDate(dateStr) {
+            if (!dateStr) return '';
+            try {
+                const date = new Date(dateStr);
+                const now = new Date();
+                const diffMs = now - date;
+                const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+                if (diffDays === 0) {
+                    return 'Today';
+                } else if (diffDays === 1) {
+                    return 'Yesterday';
+                } else if (diffDays < 7) {
+                    return `${diffDays} days ago`;
+                } else {
+                    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                }
+            } catch (e) {
+                return dateStr;
+            }
+        }
+
+        // Get language name from code
+        function getLanguageName(code) {
+            const langNames = {
+                ar: 'Arabic', zh: 'Chinese', da: 'Danish', nl: 'Dutch', en: 'English',
+                fi: 'Finnish', fr: 'French', de: 'German', el: 'Greek', he: 'Hebrew',
+                hi: 'Hindi', it: 'Italian', ja: 'Japanese', ko: 'Korean', ms: 'Malay',
+                no: 'Norwegian', pl: 'Polish', pt: 'Portuguese', ru: 'Russian', es: 'Spanish',
+                sw: 'Swahili', sv: 'Swedish', tr: 'Turkish'
+            };
+            return langNames[code] || code;
+        }
+
+        // Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // View job progress
+        function viewJob(jobId) {
+            window.location.hash = `job/${jobId}`;
+        }
+
+        // Download completed job
+        async function downloadJob(jobId) {
+            try {
+                const response = await fetch(`/jobs/${jobId}/download`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${currentUser.access_token}`
+                    }
+                });
+
+                if (response.status === 401) {
+                    clearAuthState();
+                    showError('Session expired. Please sign in again.');
+                    return;
+                }
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || 'Failed to get download link');
+                }
+
+                const data = await response.json();
+                // Open download URL in new tab/window
+                window.open(data.download_url, '_blank');
+
+            } catch (error) {
+                console.error('Download error:', error);
+                showError('Failed to download: ' + error.message);
+            }
         }
 
         // Initialize on load
