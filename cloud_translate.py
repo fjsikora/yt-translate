@@ -110,6 +110,16 @@ class PreviewResponse(BaseModel):
     message: str  # Human-readable status message
 
 
+class PreviewStatusResponse(BaseModel):
+    preview_id: str  # UUID of the preview job
+    status: str  # "pending", "processing", "completed", "failed"
+    progress: int  # 0-100
+    stage: Optional[str] = None  # Current processing stage
+    error: Optional[str] = None  # Error message if failed
+    preview_url: Optional[str] = None  # Signed URL when completed
+    price_quote: Optional[int] = None  # Price in cents for full translation
+
+
 # Lifespan for startup/shutdown
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -667,6 +677,97 @@ async def create_preview(request: PreviewRequest, background_tasks: BackgroundTa
         preview_id=preview_id,
         status="pending",
         message="Preview job created. Processing will begin shortly."
+    )
+
+
+@app.get("/preview/{preview_id}", response_model=PreviewStatusResponse)
+async def get_preview_status(
+    preview_id: str,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None
+):
+    """
+    Get the status of a preview job.
+
+    Access control:
+    - Guests can access by providing matching session_id as query param
+    - Logged-in users can access by providing matching user_id as query param
+    - At least one of session_id or user_id must be provided
+
+    Returns:
+    - status, progress, stage for tracking
+    - preview_url and price_quote when completed
+    """
+    # Validate that at least one identifier is provided
+    if not session_id and not user_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Either session_id or user_id must be provided"
+        )
+
+    # Get the preview job from database
+    preview_job = db.get_preview_job(preview_id)
+
+    if not preview_job:
+        raise HTTPException(status_code=404, detail="Preview job not found")
+
+    # Access control: verify ownership
+    job_session_id = preview_job.get("session_id")
+    job_user_id = preview_job.get("user_id")
+
+    # Check if the requester owns this preview
+    has_access = False
+    if session_id and job_session_id == session_id:
+        has_access = True
+    if user_id and job_user_id == user_id:
+        has_access = True
+
+    if not has_access:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. You do not have permission to view this preview."
+        )
+
+    # Build response
+    status = preview_job.get("status", "pending")
+    progress = preview_job.get("progress", 0)
+    stage = preview_job.get("stage")
+    error = preview_job.get("error_message")
+
+    preview_url = None
+    price_quote = None
+
+    # When completed, include preview_url and price_quote
+    if status == "completed":
+        preview_file_path = preview_job.get("preview_file_path")
+        if preview_file_path:
+            try:
+                preview_url = db.get_preview_signed_url(preview_file_path, expires_in=3600)
+            except Exception:
+                # If signed URL generation fails, still return status
+                pass
+
+        # Calculate price quote from video URL
+        video_url = preview_job.get("video_url")
+        if video_url:
+            try:
+                with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+                    info = ydl.extract_info(video_url, download=False)
+                    if info:
+                        duration = info.get('duration', 0)
+                        price_quote = calculate_processing_cost(duration)
+            except Exception:
+                # If price calculation fails, continue without it
+                pass
+
+    return PreviewStatusResponse(
+        preview_id=preview_id,
+        status=status,
+        progress=progress,
+        stage=stage,
+        error=error,
+        preview_url=preview_url,
+        price_quote=price_quote
     )
 
 
