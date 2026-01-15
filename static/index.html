@@ -854,6 +854,307 @@
             }
         }
 
+        /* Auth Modal */
+        .auth-modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            animation: fade-in 0.3s ease-out;
+        }
+
+        .auth-modal-overlay.visible {
+            display: flex;
+        }
+
+        @keyframes fade-in {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .auth-modal {
+            background: var(--bg-panel);
+            border: 1px solid var(--phosphor-green-dim);
+            border-radius: 8px;
+            width: 100%;
+            max-width: 400px;
+            padding: 2rem;
+            position: relative;
+            box-shadow: 0 0 40px var(--phosphor-green-glow), 0 20px 60px rgba(0, 0, 0, 0.5);
+            animation: modal-slide-in 0.3s ease-out;
+        }
+
+        @keyframes modal-slide-in {
+            from { opacity: 0; transform: translateY(-20px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .auth-modal-close {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.25rem;
+            line-height: 1;
+            transition: color 0.3s ease;
+        }
+
+        .auth-modal-close:hover {
+            color: var(--phosphor-green);
+        }
+
+        .auth-modal-header {
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .auth-modal-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--phosphor-green);
+            letter-spacing: 0.1em;
+            text-shadow: 0 0 10px var(--phosphor-green-glow);
+            margin-bottom: 0.5rem;
+        }
+
+        .auth-modal-subtitle {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            letter-spacing: 0.05em;
+        }
+
+        .auth-google-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            width: 100%;
+            padding: 0.9rem 1.5rem;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.85rem;
+            font-weight: 500;
+            background: #fff;
+            color: #333;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .auth-google-btn:hover {
+            background: #f5f5f5;
+            box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2);
+        }
+
+        .auth-google-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .google-icon {
+            flex-shrink: 0;
+        }
+
+        .auth-divider {
+            display: flex;
+            align-items: center;
+            margin: 1.5rem 0;
+        }
+
+        .auth-divider::before,
+        .auth-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border-color);
+        }
+
+        .auth-divider span {
+            padding: 0 1rem;
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            letter-spacing: 0.1em;
+        }
+
+        .auth-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .auth-form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .auth-label {
+            font-size: 0.7rem;
+            color: var(--phosphor-green);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .auth-input {
+            padding: 0.9rem 1rem;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.85rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .auth-input::placeholder {
+            color: var(--text-dim);
+        }
+
+        .auth-input:focus {
+            border-color: var(--phosphor-green-dim);
+            box-shadow: 0 0 10px var(--phosphor-green-glow), inset 0 0 5px rgba(0, 255, 102, 0.05);
+        }
+
+        .auth-tos-group {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            background: rgba(0, 255, 102, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+
+        .auth-tos-group.hidden {
+            display: none;
+        }
+
+        .auth-tos-group input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            margin-top: 2px;
+            accent-color: var(--phosphor-green);
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .auth-tos-group label {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            line-height: 1.5;
+            cursor: pointer;
+        }
+
+        .auth-tos-group a {
+            color: var(--phosphor-green);
+            text-decoration: none;
+        }
+
+        .auth-tos-group a:hover {
+            text-shadow: 0 0 10px var(--phosphor-green-glow);
+        }
+
+        .auth-error {
+            display: none;
+            padding: 0.75rem;
+            background: rgba(255, 51, 68, 0.1);
+            border: 1px solid var(--red-alert);
+            border-radius: 4px;
+            color: var(--red-alert);
+            font-size: 0.75rem;
+            text-align: center;
+        }
+
+        .auth-error.visible {
+            display: block;
+        }
+
+        .auth-submit-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            width: 100%;
+            padding: 1rem 1.5rem;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            background: var(--phosphor-green);
+            color: var(--bg-deep);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 0.5rem;
+        }
+
+        .auth-submit-btn:hover:not(:disabled) {
+            box-shadow: 0 0 30px var(--phosphor-green-glow);
+            transform: translateY(-1px);
+        }
+
+        .auth-submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .auth-submit-loading {
+            display: flex;
+            align-items: center;
+        }
+
+        .auth-submit-loading .loading-spinner {
+            width: 16px;
+            height: 16px;
+            border-width: 2px;
+            border-top-color: var(--bg-deep);
+        }
+
+        .auth-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .auth-toggle span {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+
+        .auth-toggle-btn {
+            background: none;
+            border: none;
+            color: var(--phosphor-green);
+            font-family: 'Space Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            padding: 0;
+            transition: all 0.3s ease;
+        }
+
+        .auth-toggle-btn:hover {
+            text-shadow: 0 0 10px var(--phosphor-green-glow);
+        }
+
         /* Hidden states */
         .hidden {
             display: none !important;
@@ -1203,6 +1504,67 @@
             </div>
         </section>
 
+        <!-- Auth Modal -->
+        <div class="auth-modal-overlay" id="auth-modal-overlay">
+            <div class="auth-modal">
+                <button class="auth-modal-close" id="auth-modal-close">&times;</button>
+                <div class="auth-modal-header">
+                    <h2 class="auth-modal-title" id="auth-modal-title">Sign In</h2>
+                    <p class="auth-modal-subtitle">Access your full translation</p>
+                </div>
+
+                <!-- Google OAuth Button (Primary) -->
+                <button class="auth-google-btn" id="auth-google-btn">
+                    <svg class="google-icon" viewBox="0 0 24 24" width="20" height="20">
+                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                    </svg>
+                    Continue with Google
+                </button>
+
+                <div class="auth-divider">
+                    <span>OR</span>
+                </div>
+
+                <!-- Email/Password Form -->
+                <form class="auth-form" id="auth-form">
+                    <div class="auth-form-group">
+                        <label class="auth-label" for="auth-email">Email</label>
+                        <input type="email" class="auth-input" id="auth-email" placeholder="your@email.com" required>
+                    </div>
+                    <div class="auth-form-group">
+                        <label class="auth-label" for="auth-password">Password</label>
+                        <input type="password" class="auth-input" id="auth-password" placeholder="••••••••" required minlength="8">
+                    </div>
+
+                    <!-- ToS Checkbox (Signup only) -->
+                    <div class="auth-tos-group" id="auth-tos-group">
+                        <input type="checkbox" id="auth-tos-checkbox">
+                        <label for="auth-tos-checkbox">
+                            I agree to the <a href="/static/terms.html" target="_blank">Terms of Service</a> and <a href="/static/privacy.html" target="_blank">Privacy Policy</a>
+                        </label>
+                    </div>
+
+                    <div class="auth-error" id="auth-error"></div>
+
+                    <button type="submit" class="auth-submit-btn" id="auth-submit-btn">
+                        <span class="auth-submit-text">Sign Up</span>
+                        <span class="auth-submit-loading hidden">
+                            <span class="loading-spinner"></span>
+                        </span>
+                    </button>
+                </form>
+
+                <!-- Toggle between signup and login -->
+                <div class="auth-toggle">
+                    <span id="auth-toggle-text">Already have an account?</span>
+                    <button type="button" class="auth-toggle-btn" id="auth-toggle-btn">Sign In</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Footer -->
         <footer class="footer">
             <div class="footer-links">
@@ -1289,6 +1651,7 @@
         async function init() {
             await loadLanguages();
             setupEventListeners();
+            initAuthModal();
         }
 
         // Load languages from API
@@ -1604,11 +1967,242 @@
             }
         }
 
-        // Show auth modal (placeholder for US-024)
+        // Auth Modal State
+        let isSignupMode = true;
+
+        // Auth Modal DOM Elements
+        const authModalOverlay = document.getElementById('auth-modal-overlay');
+        const authModalClose = document.getElementById('auth-modal-close');
+        const authModalTitle = document.getElementById('auth-modal-title');
+        const authGoogleBtn = document.getElementById('auth-google-btn');
+        const authForm = document.getElementById('auth-form');
+        const authEmailInput = document.getElementById('auth-email');
+        const authPasswordInput = document.getElementById('auth-password');
+        const authTosGroup = document.getElementById('auth-tos-group');
+        const authTosCheckbox = document.getElementById('auth-tos-checkbox');
+        const authError = document.getElementById('auth-error');
+        const authSubmitBtn = document.getElementById('auth-submit-btn');
+        const authSubmitText = document.querySelector('.auth-submit-text');
+        const authSubmitLoading = document.querySelector('.auth-submit-loading');
+        const authToggleText = document.getElementById('auth-toggle-text');
+        const authToggleBtn = document.getElementById('auth-toggle-btn');
+
+        // Show auth modal
         function showAuthModal() {
-            // This will be implemented in US-024
-            // For now, show a message indicating login is required
-            alert('Please sign in to purchase the full video. Auth modal coming in US-024!');
+            // Reset to signup mode by default
+            isSignupMode = true;
+            updateAuthModalMode();
+            clearAuthError();
+            authForm.reset();
+            authModalOverlay.classList.add('visible');
+            authEmailInput.focus();
+        }
+
+        // Hide auth modal
+        function hideAuthModal() {
+            authModalOverlay.classList.remove('visible');
+            clearAuthError();
+        }
+
+        // Toggle between signup and login mode
+        function toggleAuthMode() {
+            isSignupMode = !isSignupMode;
+            updateAuthModalMode();
+            clearAuthError();
+        }
+
+        // Update modal UI based on mode
+        function updateAuthModalMode() {
+            if (isSignupMode) {
+                authModalTitle.textContent = 'Create Account';
+                authSubmitText.textContent = 'Sign Up';
+                authToggleText.textContent = 'Already have an account?';
+                authToggleBtn.textContent = 'Sign In';
+                authTosGroup.classList.remove('hidden');
+            } else {
+                authModalTitle.textContent = 'Sign In';
+                authSubmitText.textContent = 'Sign In';
+                authToggleText.textContent = "Don't have an account?";
+                authToggleBtn.textContent = 'Sign Up';
+                authTosGroup.classList.add('hidden');
+            }
+        }
+
+        // Show auth error
+        function showAuthError(message) {
+            authError.textContent = message;
+            authError.classList.add('visible');
+        }
+
+        // Clear auth error
+        function clearAuthError() {
+            authError.textContent = '';
+            authError.classList.remove('visible');
+        }
+
+        // Set auth loading state
+        function setAuthLoading(loading) {
+            authSubmitBtn.disabled = loading;
+            authGoogleBtn.disabled = loading;
+            authSubmitText.classList.toggle('hidden', loading);
+            authSubmitLoading.classList.toggle('hidden', !loading);
+        }
+
+        // Handle form submission (signup or login)
+        async function handleAuthSubmit(e) {
+            e.preventDefault();
+            clearAuthError();
+
+            const email = authEmailInput.value.trim();
+            const password = authPasswordInput.value;
+
+            // Validate email
+            if (!email || !email.includes('@')) {
+                showAuthError('Please enter a valid email address');
+                return;
+            }
+
+            // Validate password
+            if (password.length < 8) {
+                showAuthError('Password must be at least 8 characters');
+                return;
+            }
+
+            // For signup, validate ToS checkbox
+            if (isSignupMode && !authTosCheckbox.checked) {
+                showAuthError('Please agree to the Terms of Service');
+                return;
+            }
+
+            // Additional password validation for signup
+            if (isSignupMode) {
+                if (!/[A-Z]/.test(password)) {
+                    showAuthError('Password must contain at least one uppercase letter');
+                    return;
+                }
+                if (!/[a-z]/.test(password)) {
+                    showAuthError('Password must contain at least one lowercase letter');
+                    return;
+                }
+                if (!/[0-9]/.test(password)) {
+                    showAuthError('Password must contain at least one number');
+                    return;
+                }
+            }
+
+            setAuthLoading(true);
+
+            try {
+                const endpoint = isSignupMode ? '/auth/signup' : '/auth/login';
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || (isSignupMode ? 'Signup failed' : 'Login failed'));
+                }
+
+                const data = await response.json();
+
+                // Store user data and token
+                currentUser = {
+                    user_id: data.user_id,
+                    email: data.email,
+                    access_token: data.access_token,
+                    refresh_token: data.refresh_token
+                };
+
+                // Store token in sessionStorage for persistence
+                sessionStorage.setItem('auth_token', data.access_token);
+                sessionStorage.setItem('refresh_token', data.refresh_token);
+                sessionStorage.setItem('user_email', data.email);
+                sessionStorage.setItem('user_id', data.user_id);
+
+                // Close modal and proceed to checkout
+                hideAuthModal();
+                proceedToCheckout();
+            } catch (error) {
+                showAuthError(error.message);
+            } finally {
+                setAuthLoading(false);
+            }
+        }
+
+        // Handle Google OAuth
+        function handleGoogleAuth() {
+            // Redirect to Google OAuth endpoint
+            // The backend will redirect to Google, then callback to our app
+            window.location.href = '/auth/google';
+        }
+
+        // Initialize auth modal event listeners
+        function initAuthModal() {
+            authModalClose.addEventListener('click', hideAuthModal);
+            authToggleBtn.addEventListener('click', toggleAuthMode);
+            authForm.addEventListener('submit', handleAuthSubmit);
+            authGoogleBtn.addEventListener('click', handleGoogleAuth);
+
+            // Close modal on overlay click (but not on modal content click)
+            authModalOverlay.addEventListener('click', (e) => {
+                if (e.target === authModalOverlay) {
+                    hideAuthModal();
+                }
+            });
+
+            // Close modal on Escape key
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && authModalOverlay.classList.contains('visible')) {
+                    hideAuthModal();
+                }
+            });
+
+            // Check for existing auth token on page load
+            const storedToken = sessionStorage.getItem('auth_token');
+            const storedEmail = sessionStorage.getItem('user_email');
+            const storedUserId = sessionStorage.getItem('user_id');
+            if (storedToken && storedEmail && storedUserId) {
+                currentUser = {
+                    user_id: storedUserId,
+                    email: storedEmail,
+                    access_token: storedToken,
+                    refresh_token: sessionStorage.getItem('refresh_token')
+                };
+            }
+
+            // Check for OAuth callback (if redirected back with token in URL hash)
+            checkOAuthCallback();
+        }
+
+        // Check for OAuth callback parameters
+        function checkOAuthCallback() {
+            // The OAuth callback will redirect to a specific page
+            // This handles the case where we return to the main page with auth params
+            const urlParams = new URLSearchParams(window.location.search);
+            const accessToken = urlParams.get('access_token');
+            const refreshToken = urlParams.get('refresh_token');
+            const userEmail = urlParams.get('email');
+            const userId = urlParams.get('user_id');
+
+            if (accessToken && userEmail && userId) {
+                currentUser = {
+                    user_id: userId,
+                    email: userEmail,
+                    access_token: accessToken,
+                    refresh_token: refreshToken
+                };
+
+                // Store in sessionStorage
+                sessionStorage.setItem('auth_token', accessToken);
+                if (refreshToken) sessionStorage.setItem('refresh_token', refreshToken);
+                sessionStorage.setItem('user_email', userEmail);
+                sessionStorage.setItem('user_id', userId);
+
+                // Clean up URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
         }
 
         // Proceed to checkout (placeholder for US-025)
