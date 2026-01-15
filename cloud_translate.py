@@ -1514,6 +1514,58 @@ class TranslationDownloadResponse(BaseModel):
     expires_in: int  # Expiration time in seconds
 
 
+class UserJobListItem(BaseModel):
+    job_id: str  # UUID of the translation job
+    video_title: Optional[str] = None  # Title of the translated video
+    target_language: str  # Language code (e.g., "es", "ja", "fr")
+    status: str  # "pending", "processing", "completed", "failed"
+    created_at: str  # ISO format datetime
+    download_available: bool  # Whether the download is ready
+
+
+@app.get("/jobs", response_model=list[UserJobListItem])
+async def list_user_jobs(
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """
+    List all translation jobs for the authenticated user.
+
+    Returns a list of translation jobs ordered by created_at descending (most recent first).
+
+    Args:
+        current_user: Authenticated user from JWT token
+
+    Returns:
+        List of UserJobListItem with job_id, video_title, target_language, status, created_at, download_available
+    """
+    # Get all translation jobs for the user from database
+    translation_jobs = db.list_translation_jobs_by_user(current_user.user_id)
+
+    # Convert to response model
+    result = []
+    for job in translation_jobs:
+        # Check if download is available (status is completed and has output file)
+        status = job.get("status", "pending")
+        output_file_path = job.get("output_file_path")
+        download_available = status == "completed" and output_file_path is not None
+
+        # Format created_at as ISO string
+        created_at = job.get("created_at", "")
+        if hasattr(created_at, "isoformat"):
+            created_at = created_at.isoformat()
+
+        result.append(UserJobListItem(
+            job_id=job.get("id", ""),
+            video_title=job.get("video_title"),
+            target_language=job.get("target_language", ""),
+            status=status,
+            created_at=created_at,
+            download_available=download_available
+        ))
+
+    return result
+
+
 @app.get("/jobs/{job_id}/download", response_model=TranslationDownloadResponse)
 async def download_translation_job(
     job_id: str,
