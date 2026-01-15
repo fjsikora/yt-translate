@@ -653,3 +653,61 @@
 - Auth state management uses simple `currentUser` variable, will be populated in US-024
 - Placeholder functions (showAuthModal, proceedToCheckout) prepare hooks for future stories
 - Preview URL comes from completed preview job's API response
+
+## US-024: Frontend - Auth Modal - COMPLETE
+
+**Date:** 2026-01-15
+**Files changed:**
+- static/index.html (modified - added auth modal)
+
+**Implementation notes:**
+- Added auth modal overlay with dark backdrop (85% opacity) and centered modal
+- Modal has slide-in animation and CRT terminal aesthetic with phosphor green glow
+- Google OAuth button as primary authentication method:
+  - White background with Google logo SVG
+  - Redirects to /auth/google endpoint on click
+- Email/password form as secondary option:
+  - Email input with validation
+  - Password input with minlength=8
+  - Form validation before submission
+- Toggle between signup and login modes:
+  - isSignupMode state variable
+  - updateAuthModalMode() updates title, button text, and ToS visibility
+  - "Already have an account?" / "Don't have an account?" toggle link
+- ToS checkbox:
+  - Only visible in signup mode (hidden class toggled)
+  - Required validation before signup submission
+  - Links to /static/terms.html and /static/privacy.html
+- Password validation for signup:
+  - Minimum 8 characters
+  - At least one uppercase letter
+  - At least one lowercase letter
+  - At least one number
+- API integration:
+  - POST /auth/signup for new users
+  - POST /auth/login for existing users
+  - Redirect to /auth/google for OAuth
+- Auth state management:
+  - currentUser object stores user_id, email, access_token, refresh_token
+  - sessionStorage persists auth_token, refresh_token, user_email, user_id
+  - checkOAuthCallback() handles URL parameters from OAuth redirect
+- UI features:
+  - Loading spinner during API calls
+  - Error message display in red alert style
+  - Escape key and overlay click to close modal
+  - Focus on email input when modal opens
+
+**Acceptance criteria verification:**
+1. ✅ Modal appears when Get Full Video clicked (if not logged in) - handleGetFullVideo() calls showAuthModal() when !currentUser
+2. ✅ Shows Google OAuth button (primary) - auth-google-btn at top of modal with Google logo SVG
+3. ✅ Shows email/password form (secondary) - auth-form with email and password inputs below "OR" divider
+4. ✅ Toggle between signup and login - auth-toggle-btn with toggleAuthMode() function
+5. ✅ ToS checkbox required for signup - auth-tos-group with validation in handleAuthSubmit()
+6. ✅ Typecheck passes - Python and JavaScript syntax checks passed
+
+**Learnings:**
+- Auth modal overlay needs z-index: 2000 to appear above CRT scan lines overlay (z-index: 1000)
+- Google OAuth requires redirect flow - cannot be done inline in modal
+- sessionStorage preferred over localStorage for auth tokens (clears on browser close)
+- Form validation should provide specific error messages for each requirement
+- Modal close on overlay click needs to check e.target === authModalOverlay to avoid closing on content click

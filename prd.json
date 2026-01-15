@@ -369,8 +369,8 @@
         "Verify in browser using MCP Toolkit browser tools"
       ],
       "priority": 24,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 24. Auth modal with Google OAuth (primary), email/password form (secondary), signup/login toggle, ToS checkbox for signup, password validation, sessionStorage persistence."
     },
     {
       "id": "US-025",
