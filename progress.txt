@@ -795,3 +795,45 @@
 - Using hash-based routing (#job/{id}) allows SPA-style navigation in index.html
 - sessionStorage.getItem('pending_translation_job_id') bridges checkout page to success page
 - Status colors: amber for processing, green for completed, red for failed
+
+## US-027: Frontend - Job Progress View - COMPLETE
+
+**Date:** 2026-01-15
+**Files changed:**
+- static/index.html (modified - added job progress panel)
+
+**Implementation notes:**
+- Added "Job Progress Panel" section with full VU meter UI for paid translation jobs
+- Implemented hash routing to detect `#job/{jobId}` URL patterns
+- Created `initHashRouting()` to listen for hash changes
+- Created `checkHashRoute()` to parse and route to appropriate view
+- Created `showJobProgress(jobId)` to display the job progress panel
+- Polling implemented in `startJobPolling()` - calls `fetchJobStatus()` every 2 seconds
+- Progress updates via `updateJobProgressDisplay()` which updates:
+  - VU meter needle rotation and arc
+  - Progress percentage text
+  - Stage indicators (download, transcribe, translate, synthesize, merge)
+  - Status text (PROCESSING, COMPLETED, FAILED)
+- `showJobComplete(downloadUrl)` displays completion section with download button
+- `showJobError(message)` handles failed jobs with error display
+- Added CSS styling for amber-themed job progress panel (vs green for preview)
+- Download button links to signed URL from API response
+
+**Hash routing pattern:**
+- `#job/{uuid}` - Shows job progress view
+- `#dashboard` - Reserved for US-028
+
+**Acceptance criteria verification:**
+1. ✅ Shows processing stages and progress - VU meter, stage indicators, progress text
+2. ✅ Polls /jobs/{id} endpoint - Every 2 seconds via setInterval
+3. ✅ When complete, shows download button - job-download-btn with link to download_url
+4. ✅ Typecheck passes - Python and JavaScript syntax verified
+5. ⚠️ Browser verification - Cannot test without server; code structure verified
+
+**Learnings:**
+- Hash routing pattern: `window.location.hash.match(/^#job\/([a-f0-9-]+)$/i)`
+- Must restore auth state from sessionStorage before API calls in hash route handler
+- Separate polling function (jobPollInterval) from preview polling to avoid conflicts
+- SVG transform-origin must be set explicitly for needle rotation: `transformOrigin: '200px 180px'`
+- On completion, hide VU meter and stages, show download section for cleaner UX
+

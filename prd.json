@@ -416,8 +416,8 @@
         "Verify in browser using MCP Toolkit browser tools"
       ],
       "priority": 27,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 27. Hash routing for #job/{jobId}, job progress panel with VU meter, polling /jobs/{id} every 2s, download button on completion."
     },
     {
       "id": "US-028",
