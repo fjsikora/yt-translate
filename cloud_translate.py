@@ -34,6 +34,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from pydantic import BaseModel
 
+import db
+
 # Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
@@ -93,6 +95,18 @@ class VideoInfoResponse(BaseModel):
     duration_seconds: int
     thumbnail_url: Optional[str] = None
     price_quote: int  # Price in cents for full translation
+
+
+class PreviewRequest(BaseModel):
+    video_url: str  # URL of the video to preview
+    target_language: str  # Language code (e.g., "es", "ja", "fr")
+    session_id: str  # Anonymous session identifier for guest users
+
+
+class PreviewResponse(BaseModel):
+    preview_id: str  # UUID of the created preview job
+    status: str  # "pending", "processing", "completed", "failed"
+    message: str  # Human-readable status message
 
 
 # Lifespan for startup/shutdown
@@ -444,6 +458,116 @@ async def get_video_info(request: VideoInfoRequest):
             status_code=400,
             detail=f"Failed to extract video information: {str(e)}"
         )
+
+
+async def process_preview(preview_id: str, video_url: str, target_language: str):
+    """
+    Background task to process a preview translation (first 60 seconds only).
+
+    This is a placeholder that will be fully implemented in US-006.
+    For now, it just updates the status to indicate processing has started.
+    """
+    try:
+        # Update status to processing
+        db.update_preview_job(preview_id, status="processing", progress=0, stage="initializing")
+
+        # TODO: US-005 - Download first 60 seconds of video
+        # TODO: US-006 - Process preview pipeline (transcribe, translate, TTS, merge)
+
+        # For now, mark as pending until full implementation
+        db.update_preview_job(
+            preview_id,
+            status="processing",
+            progress=5,
+            stage="queued_for_processing"
+        )
+
+    except Exception as e:
+        db.update_preview_job(
+            preview_id,
+            status="failed",
+            error_message=str(e),
+            stage="error"
+        )
+
+
+@app.post("/preview", response_model=PreviewResponse)
+async def create_preview(request: PreviewRequest, background_tasks: BackgroundTasks):
+    """
+    Start a free preview translation job (first 60 seconds only).
+
+    Creates a preview job record in the database and starts background processing.
+    Guest users are identified by session_id.
+    """
+    # Validate language
+    if request.target_language not in SUPPORTED_LANGUAGES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported language: {request.target_language}. Supported: {list(SUPPORTED_LANGUAGES.keys())}"
+        )
+
+    # Validate session_id is not empty
+    if not request.session_id or not request.session_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="session_id is required"
+        )
+
+    # Validate video URL by attempting to extract info
+    try:
+        with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+            info = ydl.extract_info(request.video_url, download=False)
+            if info is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not extract video information from the provided URL"
+                )
+    except yt_dlp.utils.DownloadError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid video URL or video not accessible: {str(e)}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to validate video URL: {str(e)}"
+        )
+
+    # Create preview job in Supabase
+    try:
+        preview_job = db.create_preview_job(
+            session_id=request.session_id.strip(),
+            video_url=request.video_url,
+            target_language=request.target_language
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create preview job: {str(e)}"
+        )
+
+    preview_id = preview_job.get("id")
+    if not preview_id:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve preview job ID"
+        )
+
+    # Start background processing
+    background_tasks.add_task(
+        process_preview,
+        preview_id,
+        request.video_url,
+        request.target_language
+    )
+
+    return PreviewResponse(
+        preview_id=preview_id,
+        status="pending",
+        message="Preview job created. Processing will begin shortly."
+    )
 
 
 @app.post("/translate", response_model=JobStatus)
