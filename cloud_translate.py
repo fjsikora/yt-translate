@@ -28,8 +28,8 @@ import httpx
 import replicate
 import yt_dlp
 from deep_translator import GoogleTranslator
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -1350,6 +1350,135 @@ async def create_checkout(
             status_code=500,
             detail=f"Failed to create checkout session: {str(e)}"
         )
+
+
+# --- Payment provider Webhook Endpoint ---
+
+@app.post("/webhook/payment-provider")
+async def payment-provider_webhook(request: Request, background_tasks: BackgroundTasks):
+    """
+    Handle Payment provider webhook events.
+
+    Verifies the webhook signature and processes events:
+    - checkout.session.completed: Updates payment_status to paid and starts full translation
+
+    Returns:
+        200 OK on successful processing
+        400 for invalid signatures or payloads
+    """
+    # Get the raw body for signature verification
+    payload = await request.body()
+
+    # Get the Payment provider signature header
+    signature = request.headers.get("payment-provider-signature")
+    if not signature:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing Payment provider-Signature header"
+        )
+
+    # Verify signature and construct event
+    try:
+        event = db.verify_payment-provider_webhook_signature(payload, signature)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+
+    # Handle the event
+    event_type = event.get("type")
+
+    if event_type == "checkout.session.completed":
+        session = event.get("data", {}).get("object", {})
+        checkout_session_id = session.get("id")
+
+        if not checkout_session_id:
+            return Response(status_code=200, content="No session ID in event")
+
+        # Get the translation job by checkout session ID
+        translation_job = db.get_translation_job_by_checkout_session(checkout_session_id)
+
+        if not translation_job:
+            # Job not found - could be a duplicate event or test webhook
+            return Response(status_code=200, content="Translation job not found")
+
+        translation_job_id = translation_job.get("id")
+        preview_job_id = translation_job.get("preview_job_id")
+
+        # Get Payment provider payment intent ID from the session
+        payment_intent_id = session.get("payment_intent")
+
+        # Update translation job: mark payment as paid
+        db.update_translation_job(
+            translation_job_id,
+            payment_status="paid",
+            payment-provider_payment_intent_id=payment_intent_id,
+            status="processing"
+        )
+
+        # Get preview job to extract video_url and target_language
+        preview_job = db.get_preview_job(preview_job_id)
+
+        if preview_job:
+            video_url = preview_job.get("video_url")
+            target_language = preview_job.get("target_language")
+
+            if video_url and target_language:
+                # Trigger full translation processing in background
+                background_tasks.add_task(
+                    process_full_translation,
+                    translation_job_id,
+                    video_url,
+                    target_language
+                )
+
+    # Return 200 to acknowledge receipt
+    return Response(status_code=200, content="Webhook received")
+
+
+async def process_full_translation(translation_job_id: str, video_url: str, target_language: str):
+    """
+    Background task to process a full video translation after payment.
+
+    This is a placeholder that will be fully implemented in US-015.
+    For now, it updates status to indicate processing has started.
+    """
+    try:
+        # Initialize job tracking in memory for helper functions
+        jobs[translation_job_id] = {
+            "job_id": translation_job_id,
+            "status": "processing",
+            "progress": 0,
+            "stage": "initializing",
+        }
+
+        # Update status in database
+        db.update_translation_job(
+            translation_job_id,
+            status="processing",
+            progress=0,
+            stage="initializing"
+        )
+
+        # Full implementation in US-015 - for now just mark as processing
+        # The actual pipeline will process the entire video duration
+
+    except Exception as e:
+        # Update database state on failure
+        db.update_translation_job(
+            translation_job_id,
+            status="failed",
+            error_message=str(e),
+            stage="error"
+        )
+        if translation_job_id in jobs:
+            update_job(
+                translation_job_id,
+                status="failed",
+                error=str(e),
+                stage="error"
+            )
 
 
 @app.post("/translate", response_model=JobStatus)
