@@ -1,0 +1,17 @@
+# YouTube Video Translator Dependencies
+
+# Core pipeline
+yt-dlp>=2024.0.0
+openai-whisper>=20231117
+deep-translator>=1.11.0
+chatterbox-tts
+torchaudio
+torch
+
+# Force newer numpy for Python 3.12+ compatibility
+numpy>=1.26.0
+
+# TUI
+rich>=13.0.0
+
+# System requirement: ffmpeg must be installed separately

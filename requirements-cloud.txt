@@ -1,0 +1,24 @@
+# YouTube Video Translator - Cloud API Version Dependencies
+# No GPU required - uses cloud APIs for heavy lifting
+
+# Web framework
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+python-multipart>=0.0.6
+
+# YouTube download
+yt-dlp>=2024.0.0
+
+# API clients
+openai>=1.0.0
+replicate>=0.20.0
+httpx>=0.25.0
+
+# Translation
+deep-translator>=1.11.0
+
+# Data models
+pydantic>=2.0.0
+
+# System requirement: ffmpeg must be installed separately
+# On Railway/Render, ffmpeg is available via nixpacks
