@@ -771,6 +771,97 @@ async def get_preview_status(
     )
 
 
+@app.get("/preview/{preview_id}/video")
+async def get_preview_video(
+    preview_id: str,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None
+):
+    """
+    Get the preview video file via signed URL redirect.
+
+    Generates a signed URL from Supabase Storage that expires after 1 hour.
+
+    Access control:
+    - Guests can access by providing matching session_id as query param
+    - Logged-in users can access by providing matching user_id as query param
+    - At least one of session_id or user_id must be provided
+
+    Returns:
+    - Redirect to signed URL for the preview video
+
+    Raises:
+    - 400: Missing session_id/user_id
+    - 403: Access denied (not the preview owner)
+    - 404: Preview not found or not completed
+    """
+    # Validate that at least one identifier is provided
+    if not session_id and not user_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Either session_id or user_id must be provided"
+        )
+
+    # Get the preview job from database
+    preview_job = db.get_preview_job(preview_id)
+
+    if not preview_job:
+        raise HTTPException(status_code=404, detail="Preview job not found")
+
+    # Access control: verify ownership
+    job_session_id = preview_job.get("session_id")
+    job_user_id = preview_job.get("user_id")
+
+    # Check if the requester owns this preview
+    has_access = False
+    if session_id and job_session_id == session_id:
+        has_access = True
+    if user_id and job_user_id == user_id:
+        has_access = True
+
+    if not has_access:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. You do not have permission to view this preview."
+        )
+
+    # Verify preview is completed
+    status = preview_job.get("status")
+    if status != "completed":
+        raise HTTPException(
+            status_code=404,
+            detail=f"Preview video not available. Current status: {status}"
+        )
+
+    # Get the file path and generate signed URL
+    preview_file_path = preview_job.get("preview_file_path")
+    if not preview_file_path:
+        raise HTTPException(
+            status_code=404,
+            detail="Preview file not found"
+        )
+
+    try:
+        # Generate signed URL with 1 hour expiration
+        signed_url = db.get_preview_signed_url(preview_file_path, expires_in=3600)
+        if not signed_url:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to generate video URL"
+            )
+        return RedirectResponse(url=signed_url, status_code=302)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Invalid storage path: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate video URL: {str(e)}"
+        )
+
+
 @app.post("/translate", response_model=JobStatus)
 async def start_translation(request: TranslateRequest, background_tasks: BackgroundTasks):
     """
