@@ -501,6 +501,82 @@ def login_user(email: str, password: str) -> dict:
             raise ValueError(f"Login failed: {str(e)}")
 
 
+def get_google_oauth_url(redirect_url: str) -> str:
+    """
+    Get the Google OAuth URL for sign-in.
+
+    Args:
+        redirect_url: The callback URL to redirect to after OAuth completes
+
+    Returns:
+        The Google OAuth authorization URL
+
+    Raises:
+        ValueError: If OAuth URL generation fails
+    """
+    client = get_supabase_client()
+
+    try:
+        result = client.auth.sign_in_with_oauth({
+            "provider": "google",
+            "options": {
+                "redirect_to": redirect_url
+            }
+        })
+
+        if result.url is None:
+            raise ValueError("Failed to get OAuth URL")
+
+        return result.url
+
+    except Exception as e:
+        raise ValueError(f"Failed to get Google OAuth URL: {str(e)}")
+
+
+def exchange_oauth_code(code: str) -> dict:
+    """
+    Exchange an OAuth code for session tokens.
+
+    Args:
+        code: The authorization code from the OAuth callback
+
+    Returns:
+        Dict with user info and session tokens:
+        {
+            "user_id": str,
+            "email": str,
+            "access_token": str,
+            "refresh_token": str,
+            "is_new_user": bool
+        }
+
+    Raises:
+        ValueError: If code exchange fails
+    """
+    client = get_supabase_client()
+
+    try:
+        result = client.auth.exchange_code_for_session({"auth_code": code})
+
+        if result.user is None or result.session is None:
+            raise ValueError("Failed to exchange code for session")
+
+        # Check if user is new by looking for their profile
+        profile = get_profile(result.user.id)
+        is_new_user = profile is None
+
+        return {
+            "user_id": result.user.id,
+            "email": result.user.email or "",
+            "access_token": result.session.access_token,
+            "refresh_token": result.session.refresh_token,
+            "is_new_user": is_new_user
+        }
+
+    except Exception as e:
+        raise ValueError(f"Failed to exchange OAuth code: {str(e)}")
+
+
 # --- Connection Test ---
 
 def test_connection() -> bool:
