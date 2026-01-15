@@ -28,8 +28,9 @@ import httpx
 import replicate
 import yt_dlp
 from deep_translator import GoogleTranslator
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
@@ -917,6 +918,96 @@ def validate_password(password: str) -> tuple[bool, str]:
     if not re.search(r'\d', password):
         return False, "Password must contain at least one digit"
     return True, ""
+
+
+# --- Authentication Middleware ---
+
+# HTTP Bearer security scheme for JWT tokens
+security = HTTPBearer(auto_error=False)
+
+
+class CurrentUser(BaseModel):
+    """Represents the currently authenticated user."""
+    user_id: str
+    email: str
+
+
+async def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> CurrentUser:
+    """
+    FastAPI dependency to get the current authenticated user from JWT token.
+
+    Extracts the Bearer token from the Authorization header, validates it
+    using Supabase Auth, and returns the user information.
+
+    Args:
+        credentials: HTTP Bearer credentials from Authorization header
+
+    Returns:
+        CurrentUser with user_id and email
+
+    Raises:
+        HTTPException 401: If token is missing or invalid
+    """
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing authentication token",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    token = credentials.credentials
+
+    try:
+        user_info = db.verify_jwt(token)
+        return CurrentUser(
+            user_id=user_info["user_id"],
+            email=user_info["email"]
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=401,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authentication token",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+
+async def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> Optional[CurrentUser]:
+    """
+    FastAPI dependency to optionally get the current authenticated user.
+
+    Similar to get_current_user but returns None instead of raising 401
+    if no token is provided. Useful for endpoints that support both
+    authenticated and guest access.
+
+    Args:
+        credentials: HTTP Bearer credentials from Authorization header
+
+    Returns:
+        CurrentUser with user_id and email, or None if not authenticated
+    """
+    if credentials is None:
+        return None
+
+    token = credentials.credentials
+
+    try:
+        user_info = db.verify_jwt(token)
+        return CurrentUser(
+            user_id=user_info["user_id"],
+            email=user_info["email"]
+        )
+    except Exception:
+        return None
 
 
 @app.post("/auth/signup", response_model=AuthResponse)
