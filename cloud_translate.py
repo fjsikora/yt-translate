@@ -511,37 +511,84 @@ async def process_preview(preview_id: str, video_url: str, target_language: str)
     Background task to process a preview translation (first 60 seconds only).
 
     Uses PREVIEW_DURATION_SECONDS to limit the video/audio duration.
-    Full pipeline implementation in US-006.
+    Pipeline: download -> transcribe -> translate -> TTS -> merge -> upload
     """
     try:
-        # Update status to processing
+        # Initialize job tracking in memory for helper functions
+        jobs[preview_id] = {
+            "job_id": preview_id,
+            "status": "processing",
+            "progress": 0,
+            "stage": "initializing",
+        }
+
+        # Update status in database
         db.update_preview_job(preview_id, status="processing", progress=0, stage="initializing")
 
-        # US-005: Download first PREVIEW_DURATION_SECONDS of video
-        # The download_video function now accepts duration_limit parameter
-        # Full pipeline will be: download -> transcribe -> translate -> TTS -> merge
-        # For now, just mark as queued until US-006 implements the full pipeline
+        # 1. Download first PREVIEW_DURATION_SECONDS of video
+        db.update_preview_job(preview_id, stage="download", progress=5)
+        video_path, audio_path, info = await download_video(
+            video_url, preview_id, duration_limit=PREVIEW_DURATION_SECONDS
+        )
+        db.update_preview_job(preview_id, progress=25)
 
-        # TODO: US-006 - Complete preview pipeline:
-        # video_path, audio_path, info = await download_video(
-        #     video_url, preview_id, duration_limit=PREVIEW_DURATION_SECONDS
-        # )
-        # Then: transcribe, translate, TTS, merge
+        # 2. Transcribe audio
+        db.update_preview_job(preview_id, stage="transcribe", progress=30)
+        transcript = await transcribe_audio(audio_path, preview_id)
+        db.update_preview_job(preview_id, progress=45)
 
+        # 3. Translate text
+        db.update_preview_job(preview_id, stage="translate", progress=50)
+        translated = await translate_text(transcript, target_language, preview_id)
+        db.update_preview_job(preview_id, progress=55)
+
+        # 4. Synthesize speech (TTS with voice cloning)
+        db.update_preview_job(preview_id, stage="synthesize", progress=60)
+        new_audio = await synthesize_speech(translated, audio_path, target_language, preview_id)
+        db.update_preview_job(preview_id, progress=85)
+
+        # 5. Merge translated audio with video
+        db.update_preview_job(preview_id, stage="merge", progress=90)
+        output_path = await merge_audio_video(video_path, new_audio, preview_id, info["title"])
+        db.update_preview_job(preview_id, progress=95)
+
+        # 6. Upload to Supabase Storage
+        db.update_preview_job(preview_id, stage="upload", progress=95)
+        storage_path = db.upload_preview_to_storage(preview_id, str(output_path))
+
+        # 7. Update job as completed with file path
         db.update_preview_job(
             preview_id,
-            status="processing",
-            progress=5,
-            stage="queued_for_processing"
+            status="completed",
+            progress=100,
+            stage="done",
+            preview_file_path=storage_path
+        )
+
+        # Update in-memory job
+        update_job(
+            preview_id,
+            status="completed",
+            progress=100,
+            stage="done",
+            output_file=str(output_path)
         )
 
     except Exception as e:
+        # Update both database and in-memory state
         db.update_preview_job(
             preview_id,
             status="failed",
             error_message=str(e),
             stage="error"
         )
+        if preview_id in jobs:
+            update_job(
+                preview_id,
+                status="failed",
+                error=str(e),
+                stage="error"
+            )
 
 
 @app.post("/preview", response_model=PreviewResponse)

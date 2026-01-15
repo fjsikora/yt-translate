@@ -327,6 +327,70 @@ def list_translation_jobs_by_user(user_id: str) -> list[dict]:
     return result.data or []
 
 
+# --- Storage Operations ---
+
+PREVIEW_BUCKET = "previews"
+
+
+def upload_preview_to_storage(preview_id: str, file_path: str) -> str:
+    """
+    Upload a preview video file to Supabase Storage.
+
+    Args:
+        preview_id: UUID of the preview job (used in storage path)
+        file_path: Local path to the video file to upload
+
+    Returns:
+        Storage path of the uploaded file (e.g., "previews/{preview_id}/preview.mp4")
+
+    Raises:
+        Exception: If upload fails
+    """
+    client = get_supabase_client()
+
+    # Storage path: previews/{preview_id}/preview.mp4
+    storage_path = f"{preview_id}/preview.mp4"
+
+    # Read file and upload
+    with open(file_path, "rb") as f:
+        file_content = f.read()
+
+    # Upload to Supabase Storage
+    result = client.storage.from_(PREVIEW_BUCKET).upload(
+        path=storage_path,
+        file=file_content,
+        file_options={"content-type": "video/mp4"}
+    )
+
+    # Return the full storage path
+    return f"{PREVIEW_BUCKET}/{storage_path}"
+
+
+def get_preview_signed_url(storage_path: str, expires_in: int = 3600) -> str:
+    """
+    Get a signed URL for accessing a preview file.
+
+    Args:
+        storage_path: Full storage path (e.g., "previews/{preview_id}/preview.mp4")
+        expires_in: URL expiration time in seconds (default: 1 hour)
+
+    Returns:
+        Signed URL for accessing the file
+    """
+    client = get_supabase_client()
+
+    # Extract bucket and path
+    parts = storage_path.split("/", 1)
+    if len(parts) != 2:
+        raise ValueError(f"Invalid storage path: {storage_path}")
+
+    bucket = parts[0]
+    path = parts[1]
+
+    result = client.storage.from_(bucket).create_signed_url(path, expires_in)
+    return result.get("signedURL", "")
+
+
 # --- Connection Test ---
 
 def test_connection() -> bool:
