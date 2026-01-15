@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-YouTube Video Translator - Cloud API Version
+Universal Video Translator - Cloud API Version
 
-A FastAPI service that translates YouTube videos using cloud APIs:
+A FastAPI service that translates videos from 1700+ sites using cloud APIs:
 - yt-dlp: Download video & extract audio (local)
 - OpenAI Whisper API: Speech-to-text transcription
 - Google Translate: Text translation
@@ -65,7 +65,7 @@ jobs: dict[str, dict] = {}
 
 # Pydantic models
 class TranslateRequest(BaseModel):
-    youtube_url: str
+    video_url: str  # Supports YouTube, Rumble, Vimeo, and 1700+ sites via yt-dlp
     target_language: str  # Language code (e.g., "es", "ja", "fr")
 
 
@@ -102,8 +102,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="YouTube Video Translator API",
-    description="Translate YouTube videos to other languages using AI",
+    title="Universal Video Translator API",
+    description="Translate videos from YouTube, Rumble, Vimeo, and 1700+ sites to other languages using AI",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -132,8 +132,8 @@ def update_job(job_id: str, **kwargs):
         jobs[job_id]["updated_at"] = time.time()
 
 
-async def download_youtube(url: str, job_id: str) -> tuple[Path, Path, dict]:
-    """Download YouTube video and extract audio."""
+async def download_video(url: str, job_id: str) -> tuple[Path, Path, dict]:
+    """Download video from any supported site and extract audio."""
     update_job(job_id, stage="download", progress=5)
 
     job_dir = OUTPUT_DIR / job_id
@@ -306,13 +306,13 @@ async def merge_audio_video(video_path: Path, audio_path: Path, job_id: str, tit
     return output_path
 
 
-async def process_translation(job_id: str, youtube_url: str, target_language: str):
+async def process_translation(job_id: str, video_url: str, target_language: str):
     """Main translation pipeline."""
     try:
         update_job(job_id, status="processing", progress=0)
 
         # 1. Download video
-        video_path, audio_path, info = await download_youtube(youtube_url, job_id)
+        video_path, audio_path, info = await download_video(video_url, job_id)
 
         # 2. Transcribe
         transcript = await transcribe_audio(audio_path, job_id)
@@ -393,7 +393,7 @@ async def start_translation(request: TranslateRequest, background_tasks: Backgro
         "status": "pending",
         "progress": 0,
         "stage": "queued",
-        "youtube_url": request.youtube_url,
+        "video_url": request.video_url,
         "target_language": request.target_language,
         "created_at": time.time(),
         "updated_at": time.time(),
@@ -403,7 +403,7 @@ async def start_translation(request: TranslateRequest, background_tasks: Backgro
     background_tasks.add_task(
         process_translation,
         job_id,
-        request.youtube_url,
+        request.video_url,
         request.target_language
     )
 
