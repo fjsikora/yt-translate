@@ -537,6 +537,59 @@
             letter-spacing: 0.1em;
         }
 
+        /* ToS Checkbox */
+        .tos-checkbox {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            margin-top: 1rem;
+            padding: 1rem;
+            background: rgba(0, 255, 102, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+        }
+
+        .tos-checkbox input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin-top: 2px;
+            accent-color: var(--phosphor-green);
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .tos-checkbox label {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            cursor: pointer;
+            line-height: 1.5;
+        }
+
+        .tos-checkbox a {
+            color: var(--phosphor-green);
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+
+        .tos-checkbox a:hover {
+            text-shadow: 0 0 10px var(--phosphor-green-glow);
+        }
+
+        /* Footer Links */
+        .footer a {
+            color: var(--phosphor-green-dim);
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+
+        .footer a:hover {
+            color: var(--phosphor-green);
+        }
+
+        .footer-links {
+            margin-bottom: 0.5rem;
+        }
+
         /* Responsive */
         @media (max-width: 600px) {
             .container {
@@ -590,7 +643,15 @@
                             autocomplete="off"
                         >
                     </div>
-                    <button class="submit-btn" id="submit-btn">Acquire Signal</button>
+                    <button class="submit-btn" id="submit-btn" disabled>Acquire Signal</button>
+                </div>
+                <div class="tos-checkbox">
+                    <input type="checkbox" id="tos-agree">
+                    <label for="tos-agree">
+                        I confirm I have the right to translate this video and agree to the
+                        <a href="/static/terms.html" target="_blank">Terms of Service</a>.
+                        I understand that translating copyrighted content without permission may violate copyright law.
+                    </label>
                 </div>
             </div>
         </section>
@@ -733,6 +794,10 @@
 
         <!-- Footer -->
         <footer class="footer">
+            <div class="footer-links">
+                <a href="/static/terms.html">Terms of Service</a> |
+                <a href="/static/dmca.html">DMCA Policy</a>
+            </div>
             Powered by OpenAI Whisper + Chatterbox TTS
         </footer>
     </div>
@@ -746,6 +811,7 @@
         // DOM Elements
         const urlInput = document.getElementById('youtube-url');
         const submitBtn = document.getElementById('submit-btn');
+        const tosCheckbox = document.getElementById('tos-agree');
         const languageGrid = document.getElementById('language-grid');
         const progressPanel = document.getElementById('progress-panel');
         const outputPanel = document.getElementById('output-panel');
@@ -818,14 +884,21 @@
             document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('selected'));
             btn.classList.add('selected');
             selectedLanguage = code;
+            updateSubmitButton();
+        }
+
+        // Update submit button state
+        function updateSubmitButton() {
+            submitBtn.disabled = !tosCheckbox.checked || !selectedLanguage;
         }
 
         // Setup event listeners
         function setupEventListeners() {
             submitBtn.addEventListener('click', startTranslation);
             retryBtn.addEventListener('click', resetUI);
+            tosCheckbox.addEventListener('change', updateSubmitButton);
             urlInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') startTranslation();
+                if (e.key === 'Enter' && !submitBtn.disabled) startTranslation();
             });
         }
 
@@ -834,12 +907,17 @@
             const url = urlInput.value.trim();
 
             if (!url) {
-                showError('Please enter a YouTube URL');
+                showError('Please enter a video URL');
                 return;
             }
 
             if (!selectedLanguage) {
                 showError('Please select a target language');
+                return;
+            }
+
+            if (!tosCheckbox.checked) {
+                showError('Please accept the Terms of Service');
                 return;
             }
 
