@@ -1509,6 +1509,86 @@ async def get_translation_job_status(
     )
 
 
+class TranslationDownloadResponse(BaseModel):
+    download_url: str  # Signed URL for downloading the translated video
+    expires_in: int  # Expiration time in seconds
+
+
+@app.get("/jobs/{job_id}/download", response_model=TranslationDownloadResponse)
+async def download_translation_job(
+    job_id: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """
+    Get a signed download URL for a completed translation job.
+
+    Requires authentication. Only returns download URL for jobs owned by the
+    current user that have completed processing.
+
+    Args:
+        job_id: UUID of the translation job
+        current_user: Authenticated user from JWT token
+
+    Returns:
+        TranslationDownloadResponse with download_url (signed URL, expires in 24 hours)
+
+    Raises:
+        401: Missing or invalid authentication token
+        404: Job not found, not owned by user, or not completed
+    """
+    # Get the translation job from database
+    translation_job = db.get_translation_job(job_id)
+
+    if not translation_job:
+        raise HTTPException(status_code=404, detail="Translation job not found")
+
+    # Verify ownership: job must belong to current user
+    job_user_id = translation_job.get("user_id")
+    if job_user_id != current_user.user_id:
+        # Return 404 instead of 403 to not leak existence of other users' jobs
+        raise HTTPException(status_code=404, detail="Translation job not found")
+
+    # Verify job is completed
+    status = translation_job.get("status")
+    if status != "completed":
+        raise HTTPException(
+            status_code=404,
+            detail=f"Translation not ready for download. Status: {status}"
+        )
+
+    # Get the output file path
+    output_file_path = translation_job.get("output_file_path")
+    if not output_file_path:
+        raise HTTPException(
+            status_code=404,
+            detail="Translation output file not found"
+        )
+
+    # Generate signed URL with 24 hour expiration (86400 seconds)
+    expires_in = 86400
+    try:
+        download_url = db.get_translation_signed_url(output_file_path, expires_in=expires_in)
+        if not download_url:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to generate download URL"
+            )
+        return TranslationDownloadResponse(
+            download_url=download_url,
+            expires_in=expires_in
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Invalid storage path: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate download URL: {str(e)}"
+        )
+
+
 async def process_full_translation(translation_job_id: str, video_url: str, target_language: str):
     """
     Background task to process a full video translation after payment.
