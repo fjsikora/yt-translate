@@ -455,6 +455,52 @@ def signup_user(email: str, password: str) -> dict:
             raise ValueError(f"Signup failed: {str(e)}")
 
 
+def login_user(email: str, password: str) -> dict:
+    """
+    Authenticate a user with email and password.
+
+    Args:
+        email: User's email address
+        password: User's password
+
+    Returns:
+        Dict with user info and session tokens:
+        {
+            "user_id": str,
+            "email": str,
+            "access_token": str,
+            "refresh_token": str
+        }
+
+    Raises:
+        ValueError: If login fails (invalid credentials)
+    """
+    client = get_supabase_client()
+
+    try:
+        result = client.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
+
+        if result.user is None or result.session is None:
+            raise ValueError("Invalid email or password")
+
+        return {
+            "user_id": result.user.id,
+            "email": result.user.email or email,
+            "access_token": result.session.access_token,
+            "refresh_token": result.session.refresh_token
+        }
+
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "invalid" in error_msg or "credentials" in error_msg or "password" in error_msg:
+            raise ValueError("Invalid email or password")
+        else:
+            raise ValueError(f"Login failed: {str(e)}")
+
+
 # --- Connection Test ---
 
 def test_connection() -> bool:
