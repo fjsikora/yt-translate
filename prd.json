@@ -277,7 +277,7 @@
       ],
       "priority": 18,
       "passes": false,
-      "notes": "BLOCKER: HUGGINGFACE_TOKEN not set in .env. Speaker diarization requires this token. Please add your Hugging Face token to .env (get from https://huggingface.co/settings/tokens) and ensure you've accepted the pyannote model licenses."
+      "notes": "BLOCKER: Pyannote model license not accepted. HUGGINGFACE_TOKEN is set, but user must accept the gated model license. Visit https://huggingface.co/pyannote/speaker-diarization-3.1 and https://huggingface.co/pyannote/speaker-diarization-community-1 to accept licenses. Fixed demucs/pyannote API compatibility bugs in iteration 21."
     },
     {
       "id": "US-019",
