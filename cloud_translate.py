@@ -38,7 +38,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 import db
-from audio_processing import AudioSeparator
+from audio_processing import AudioSeparator, SpeakerDiarizer
 
 # Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -539,6 +539,90 @@ async def separate_audio(audio_path: Path, job_id: str) -> tuple[Path, Path]:
         return audio_path, audio_path
 
 
+async def diarize_speakers(
+    vocals_path: Path,
+    job_id: str
+) -> tuple[list[dict], dict[str, str]]:
+    """
+    Run speaker diarization on vocals audio and extract per-speaker voice samples.
+
+    Uses pyannote.audio to identify different speakers, then extracts voice
+    samples for each speaker and uploads them to Supabase Storage.
+
+    Args:
+        vocals_path: Path to the vocals audio file
+        job_id: Job ID for progress tracking and storage path
+
+    Returns:
+        Tuple of (diarization_segments, speaker_voice_urls) where:
+        - diarization_segments: List of segment dicts with speaker labels and timestamps
+        - speaker_voice_urls: Dict mapping speaker ID to signed URL for voice sample
+
+    Note:
+        Falls back to empty results if diarization fails (allows pipeline to continue
+        with single-speaker synthesis).
+    """
+    update_job(job_id, stage="diarize", progress=31)
+
+    job_dir = OUTPUT_DIR / job_id
+    diarization_segments: list[dict] = []
+    speaker_voice_urls: dict[str, str] = {}
+
+    try:
+        # Initialize diarizer
+        diarizer = SpeakerDiarizer()
+
+        # Run diarization on vocals
+        diarization_segments = diarizer.diarize(vocals_path)
+
+        update_job(job_id, progress=35)
+
+        if not diarization_segments:
+            print(f"Warning: No speakers detected in audio for job {job_id}")
+            return [], {}
+
+        # Extract per-speaker voice samples (24kHz mono WAV for Chatterbox)
+        speaker_samples = diarizer.extract_speaker_samples(
+            audio_path=vocals_path,
+            output_dir=job_dir,
+            segments=diarization_segments
+        )
+
+        update_job(job_id, progress=38)
+
+        # Upload each speaker's voice sample to Supabase Storage
+        for speaker_id, sample_path in speaker_samples.items():
+            try:
+                # Upload voice sample with speaker ID in the path
+                storage_path = db.upload_voice_sample(
+                    job_id=job_id,
+                    file_path=str(sample_path),
+                    speaker_id=speaker_id
+                )
+
+                # Get signed URL for Replicate API access
+                signed_url = db.get_voice_sample_signed_url(
+                    storage_path=storage_path,
+                    expires_in=3600  # 1 hour expiration
+                )
+
+                speaker_voice_urls[speaker_id] = signed_url
+
+            except Exception as e:
+                print(f"Warning: Failed to upload voice sample for {speaker_id}: {e}")
+                continue
+
+        update_job(job_id, progress=40)
+
+        return diarization_segments, speaker_voice_urls
+
+    except Exception as e:
+        # Fallback: if diarization fails, return empty results
+        # The pipeline will continue with single-speaker synthesis
+        print(f"Warning: Speaker diarization failed for job {job_id}: {e}")
+        return [], {}
+
+
 async def merge_audio_video(video_path: Path, audio_path: Path, job_id: str, title: str) -> Path:
     """Merge translated audio with original video."""
     update_job(job_id, stage="merge", progress=90)
@@ -574,20 +658,24 @@ async def process_translation(job_id: str, video_url: str, target_language: str)
         # 2. Separate audio into vocals and background
         vocals_path, background_path = await separate_audio(audio_path, job_id)
 
-        # 3. Transcribe vocals (cleaner input without background noise)
+        # 3. Run speaker diarization on vocals
+        diarization_segments, speaker_voice_urls = await diarize_speakers(vocals_path, job_id)
+
+        # 4. Transcribe vocals (cleaner input without background noise)
         segments = await transcribe_audio(vocals_path, job_id)
 
-        # 4. Translate segments (preserves timestamps)
+        # 5. Translate segments (preserves timestamps)
         translated_segments = await translate_segments(segments, target_language, job_id)
 
-        # 5. Synthesize (TTS) - for now, combine all translated text
+        # 6. Synthesize (TTS) - for now, combine all translated text
         # Future: US-015 will implement per-segment multi-speaker synthesis
+        # Note: diarization_segments and speaker_voice_urls are available for US-015
         translated_text = " ".join(
             seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
         )
         new_audio = await synthesize_speech(translated_text, vocals_path, target_language, job_id)
 
-        # 6. Merge
+        # 7. Merge
         output = await merge_audio_video(video_path, new_audio, job_id, info["title"])
 
         # Update job as completed
@@ -780,7 +868,7 @@ async def process_preview(preview_id: str, video_url: str, target_language: str)
     Background task to process a preview translation (first 60 seconds only).
 
     Uses PREVIEW_DURATION_SECONDS to limit the video/audio duration.
-    Pipeline: download -> separate -> transcribe -> translate -> TTS -> merge -> upload
+    Pipeline: download -> separate -> diarize -> transcribe -> translate -> TTS -> merge -> upload
     """
     try:
         # Initialize job tracking in memory for helper functions
@@ -806,18 +894,24 @@ async def process_preview(preview_id: str, video_url: str, target_language: str)
         vocals_path, background_path = await separate_audio(audio_path, preview_id)
         db.update_preview_job(preview_id, progress=30)
 
-        # 3. Transcribe vocals (cleaner input without background noise)
-        db.update_preview_job(preview_id, stage="transcribe", progress=31)
-        segments = await transcribe_audio(vocals_path, preview_id)
-        db.update_preview_job(preview_id, progress=45)
+        # 3. Run speaker diarization on vocals
+        db.update_preview_job(preview_id, stage="diarize", progress=31)
+        diarization_segments, speaker_voice_urls = await diarize_speakers(vocals_path, preview_id)
+        db.update_preview_job(preview_id, progress=40)
 
-        # 4. Translate segments (preserves timestamps)
+        # 4. Transcribe vocals (cleaner input without background noise)
+        db.update_preview_job(preview_id, stage="transcribe", progress=41)
+        segments = await transcribe_audio(vocals_path, preview_id)
+        db.update_preview_job(preview_id, progress=48)
+
+        # 5. Translate segments (preserves timestamps)
         db.update_preview_job(preview_id, stage="translate", progress=50)
         translated_segments = await translate_segments(segments, target_language, preview_id)
         db.update_preview_job(preview_id, progress=55)
 
-        # 5. Synthesize speech (TTS with voice cloning)
+        # 6. Synthesize speech (TTS with voice cloning)
         # For now, combine all translated text - US-015 will add per-segment synthesis
+        # Note: diarization_segments and speaker_voice_urls are available for US-015
         translated_text = " ".join(
             seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
         )
@@ -825,16 +919,16 @@ async def process_preview(preview_id: str, video_url: str, target_language: str)
         new_audio = await synthesize_speech(translated_text, vocals_path, target_language, preview_id)
         db.update_preview_job(preview_id, progress=85)
 
-        # 6. Merge translated audio with video
+        # 7. Merge translated audio with video
         db.update_preview_job(preview_id, stage="merge", progress=90)
         output_path = await merge_audio_video(video_path, new_audio, preview_id, info["title"])
         db.update_preview_job(preview_id, progress=95)
 
-        # 7. Upload to Supabase Storage
+        # 8. Upload to Supabase Storage
         db.update_preview_job(preview_id, stage="upload", progress=95)
         storage_path = db.upload_preview_to_storage(preview_id, str(output_path))
 
-        # 8. Update job as completed with file path
+        # 9. Update job as completed with file path
         db.update_preview_job(
             preview_id,
             status="completed",
@@ -1894,7 +1988,7 @@ async def process_full_translation(translation_job_id: str, video_url: str, targ
     Background task to process a full video translation after payment.
 
     Processes the entire video duration (no 60-second limit).
-    Pipeline: download -> separate -> transcribe -> translate -> TTS -> merge -> upload
+    Pipeline: download -> separate -> diarize -> transcribe -> translate -> TTS -> merge -> upload
 
     Note: Could optimize by reusing preview transcription for first 60 seconds,
     but for simplicity we re-process the entire video to ensure quality.
@@ -1928,18 +2022,24 @@ async def process_full_translation(translation_job_id: str, video_url: str, targ
         vocals_path, background_path = await separate_audio(audio_path, translation_job_id)
         db.update_translation_job(translation_job_id, progress=30)
 
-        # 3. Transcribe vocals (cleaner input without background noise)
-        db.update_translation_job(translation_job_id, stage="transcribe", progress=31)
-        segments = await transcribe_audio(vocals_path, translation_job_id)
-        db.update_translation_job(translation_job_id, progress=45)
+        # 3. Run speaker diarization on vocals
+        db.update_translation_job(translation_job_id, stage="diarize", progress=31)
+        diarization_segments, speaker_voice_urls = await diarize_speakers(vocals_path, translation_job_id)
+        db.update_translation_job(translation_job_id, progress=40)
 
-        # 4. Translate segments (preserves timestamps)
+        # 4. Transcribe vocals (cleaner input without background noise)
+        db.update_translation_job(translation_job_id, stage="transcribe", progress=41)
+        segments = await transcribe_audio(vocals_path, translation_job_id)
+        db.update_translation_job(translation_job_id, progress=48)
+
+        # 5. Translate segments (preserves timestamps)
         db.update_translation_job(translation_job_id, stage="translate", progress=50)
         translated_segments = await translate_segments(segments, target_language, translation_job_id)
         db.update_translation_job(translation_job_id, progress=55)
 
-        # 5. Synthesize speech (TTS with voice cloning)
+        # 6. Synthesize speech (TTS with voice cloning)
         # For now, combine all translated text - US-015 will add per-segment synthesis
+        # Note: diarization_segments and speaker_voice_urls are available for US-015
         translated_text = " ".join(
             seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
         )
@@ -1947,16 +2047,16 @@ async def process_full_translation(translation_job_id: str, video_url: str, targ
         new_audio = await synthesize_speech(translated_text, vocals_path, target_language, translation_job_id)
         db.update_translation_job(translation_job_id, progress=85)
 
-        # 6. Merge translated audio with video
+        # 7. Merge translated audio with video
         db.update_translation_job(translation_job_id, stage="merge", progress=90)
         output_path = await merge_audio_video(video_path, new_audio, translation_job_id, info["title"])
         db.update_translation_job(translation_job_id, progress=95)
 
-        # 7. Upload to Supabase Storage
+        # 8. Upload to Supabase Storage
         db.update_translation_job(translation_job_id, stage="upload", progress=95)
         storage_path = db.upload_translation_to_storage(translation_job_id, str(output_path))
 
-        # 8. Update job as completed with file path
+        # 9. Update job as completed with file path
         db.update_translation_job(
             translation_job_id,
             status="completed",
