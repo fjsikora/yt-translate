@@ -657,3 +657,31 @@ The HUGGINGFACE_TOKEN environment variable is not set in .env. This token is req
 - US-018: End-to-End Testing - Local (BLOCKED)
 - US-019: End-to-End Testing - Cloud (BLOCKED - same token required)
 
+
+## US-018: End-to-End Testing - Local - STILL BLOCKED (iteration 20)
+
+**Date:** 2026-01-15 (iteration 20)
+**Status:** BLOCKED - HUGGINGFACE_TOKEN still not configured
+
+**Re-verification:**
+- Checked .env file - HUGGINGFACE_TOKEN is still absent
+- Typecheck continues to pass (syntax validation successful)
+- Found existing test videos in output/ directory, but cannot test without diarization
+
+**Critical dependency:**
+Speaker diarization (pyannote.audio) is a core feature for multi-speaker voice matching:
+- Without it, we cannot identify different speakers
+- Without speaker identification, we cannot match voices
+- The acceptance criteria "Verify different voices used for different speakers" fundamentally requires this
+
+**Action required by human:**
+Please set up the Hugging Face token:
+1. Visit https://huggingface.co/settings/tokens
+2. Create a new token with "Read" access
+3. Accept the pyannote model licenses:
+   - https://huggingface.co/pyannote/speaker-diarization-3.1
+   - https://huggingface.co/pyannote/segmentation-3.0
+4. Add to .env: HUGGINGFACE_TOKEN=hf_your_token_here
+
+**Story remains BLOCKED - cannot proceed without human intervention**
+
