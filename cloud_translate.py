@@ -422,38 +422,64 @@ async def translate_segments(segments: list[dict], target_lang: str, job_id: str
     return translated_segments
 
 
-async def synthesize_speech(text: str, audio_prompt_path: Path, target_lang: str, job_id: str) -> Path:
-    """Generate speech using Replicate Chatterbox API."""
+async def synthesize_speech(
+    text: str,
+    audio_prompt_path: Path,
+    target_lang: str,
+    job_id: str,
+    cfg_weight: float = 0.5,
+    exaggeration: float = 0.5
+) -> Path:
+    """
+    Generate speech using Replicate Chatterbox API with voice cloning.
+
+    Args:
+        text: The text to synthesize
+        audio_prompt_path: Path to source audio for voice cloning
+        target_lang: Target language code (e.g., "es", "ja")
+        job_id: Job ID for tracking and storage
+        cfg_weight: CFG/Pace weight (0.0-1.0, higher = slower/more stable)
+        exaggeration: Voice exaggeration (0.0-1.0, higher = more expressive)
+
+    Returns:
+        Path to the synthesized audio file
+    """
     update_job(job_id, stage="synthesize", progress=60)
 
     job_dir = OUTPUT_DIR / job_id
     output_audio = job_dir / "translated_audio.wav"
 
-    # Upload audio prompt to a temporary URL (Replicate needs a URL)
-    # For production, use cloud storage (S3, GCS, etc.)
-    # For now, we'll use the file directly if Replicate supports it
-
-    # Read the first 10 seconds of audio for voice cloning reference
+    # Extract a 10-second voice sample for cloning (24kHz mono for Chatterbox)
     voice_sample = job_dir / "voice_sample.wav"
     subprocess.run([
         'ffmpeg', '-i', str(audio_prompt_path),
-        '-t', '10', '-y', str(voice_sample)
+        '-t', '10',
+        '-ar', '24000',  # Chatterbox requires 24kHz
+        '-ac', '1',       # Mono
+        '-y', str(voice_sample)
     ], capture_output=True, check=True)
+
+    update_job(job_id, progress=62)
+
+    # Upload voice sample to Supabase Storage for Replicate API access
+    try:
+        storage_path = db.upload_voice_sample(job_id, str(voice_sample))
+        voice_sample_url = db.get_voice_sample_signed_url(storage_path, expires_in=3600)
+    except Exception as e:
+        raise RuntimeError(f"Failed to upload voice sample: {e}")
 
     update_job(job_id, progress=65)
 
-    # Call Replicate API
-    # Note: Replicate needs a URL for the audio file, so we'll need to handle this
-    # For local testing, you may need to use a file hosting service
-
+    # Call Replicate Chatterbox API with voice cloning
     try:
         output = replicate.run(
             "resemble-ai/chatterbox-multilingual",
             input={
                 "text": text,
                 "language_id": target_lang,
-                # Note: audio_prompt needs to be a URL in production
-                # For local dev, you might need to upload to a temp file service
+                "audio_prompt": voice_sample_url,
+                "cfg_weight": cfg_weight,
+                "exaggeration": exaggeration,
             }
         )
 
@@ -465,7 +491,7 @@ async def synthesize_speech(text: str, audio_prompt_path: Path, target_lang: str
                 with open(output_audio, "wb") as f:
                     f.write(response.content)
         else:
-            # Output might be file-like
+            # Output might be file-like or iterator
             with open(output_audio, "wb") as f:
                 for chunk in output:
                     f.write(chunk)

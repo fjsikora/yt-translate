@@ -463,6 +463,75 @@ def get_translation_signed_url(storage_path: str, expires_in: int = 86400) -> st
     return result.get("signedURL", "")
 
 
+# Bucket for voice samples (temporary storage for Replicate API)
+VOICE_SAMPLES_BUCKET = "voice-samples"
+
+
+def upload_voice_sample(job_id: str, file_path: str, speaker_id: str = "default") -> str:
+    """
+    Upload a voice sample to Supabase Storage for Replicate API.
+
+    The voice sample is uploaded to a temporary bucket that Replicate can
+    access via signed URL for voice cloning.
+
+    Args:
+        job_id: UUID of the job (preview or translation)
+        file_path: Local path to the WAV file
+        speaker_id: Speaker identifier (for multi-speaker support)
+
+    Returns:
+        Storage path of the uploaded file
+
+    Raises:
+        Exception: If upload fails
+    """
+    client = get_supabase_client()
+
+    # Storage path: voice-samples/{job_id}/{speaker_id}.wav
+    storage_path = f"{job_id}/{speaker_id}.wav"
+
+    # Read file and upload
+    with open(file_path, "rb") as f:
+        file_content = f.read()
+
+    # Upload to Supabase Storage
+    client.storage.from_(VOICE_SAMPLES_BUCKET).upload(
+        path=storage_path,
+        file=file_content,
+        file_options={"content-type": "audio/wav"}
+    )
+
+    # Return the full storage path
+    return f"{VOICE_SAMPLES_BUCKET}/{storage_path}"
+
+
+def get_voice_sample_signed_url(storage_path: str, expires_in: int = 3600) -> str:
+    """
+    Get a signed URL for a voice sample file.
+
+    Used to provide Replicate API with access to the voice sample.
+
+    Args:
+        storage_path: Full storage path (e.g., "voice-samples/{job_id}/{speaker_id}.wav")
+        expires_in: URL expiration time in seconds (default: 1 hour)
+
+    Returns:
+        Signed URL for accessing the file
+    """
+    client = get_supabase_client()
+
+    # Extract bucket and path
+    parts = storage_path.split("/", 1)
+    if len(parts) != 2:
+        raise ValueError(f"Invalid storage path: {storage_path}")
+
+    bucket = parts[0]
+    path = parts[1]
+
+    result = client.storage.from_(bucket).create_signed_url(path, expires_in)
+    return result.get("signedURL", "")
+
+
 # --- Authentication Operations ---
 
 def signup_user(email: str, password: str) -> dict:
