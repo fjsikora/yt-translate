@@ -564,3 +564,32 @@ ffmpeg -i video.mp4 -i audio.wav -i subtitles.srt \
 - Background mixing only occurs when audio separation succeeded (background_path != audio_path)
 - Progress percentages were adjusted to accommodate new mix and subtitle stages
 
+
+## US-017: Update Requirements Files - COMPLETE
+
+**Date:** 2026-01-15 (iteration 17)
+**Files changed:**
+- SETUP.md (documentation updates)
+
+**Implementation notes:**
+- Verified requirements.txt already has demucs>=4.0.0 and pyannote.audio>=3.1.0 (added in US-002, US-003)
+- Verified requirements-cloud.txt already has demucs>=4.0.0 (added in US-002)
+- Documented HUGGINGFACE_TOKEN in SETUP.md:
+  - Added to Environment Variables section (lines 73-78)
+  - Added to .env example in Local Testing section
+  - Added Hugging Face to Setup Checklist table
+  - Added voice-samples bucket to Supabase Storage setup
+  - Added troubleshooting section for speaker diarization failures
+
+**SETUP.md changes:**
+- New environment variable section for Hugging Face with token URL
+- voice-samples bucket added (required for speaker voice cloning)
+- Troubleshooting section with links to accept pyannote model licenses:
+  - pyannote/speaker-diarization-3.1
+  - pyannote/segmentation-3.0
+
+**Learnings:**
+- Requirements were already updated in earlier iterations (US-002, US-003)
+- HUGGINGFACE_TOKEN requires users to accept model licenses on Hugging Face
+- Documentation should include troubleshooting for common setup issues
+
