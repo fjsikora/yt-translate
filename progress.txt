@@ -43,3 +43,29 @@
 - For production, consider structured logging (JSON format) for log aggregation
 - The acceptance criteria count (19 prints) was outdated - always verify with grep
 
+## US-003: Extract Configuration Constants - COMPLETE
+
+**Date:** 2026-01-16
+**Files changed:**
+- config.py (NEW)
+- cloud_translate.py
+
+**Implementation notes:**
+- Created `config.py` with all centralized constants organized in logical sections
+- Constants extracted:
+  - Google Translate: `GOOGLE_TRANSLATE_CHUNK_SIZE = 4500`
+  - LLM Translation: `LLM_MAX_SEGMENTS_PER_BATCH = 50`, `LLM_BATCH_OVERLAP = 5`, `LLM_MAX_TOKENS = 4096`, `LLM_TEMPERATURE = 0.3`
+  - Chatterbox TTS: `CHATTERBOX_SAMPLE_RATE = 24000`, `CHATTERBOX_CFG_WEIGHT = 0.5`, `CHATTERBOX_EXAGGERATION = 0.5`
+  - Voice Samples: `VOICE_SAMPLE_DURATION_SECONDS = 10.0`, `MIN_VOICE_SAMPLE_DURATION = 3.0`, `MAX_VOICE_SAMPLE_DURATION = 12.0`
+  - Signed URLs: `SIGNED_URL_EXPIRATION = 3600` (1 hour), `SIGNED_URL_EXPIRATION_LONG = 86400` (24 hours)
+  - Audio: `BACKGROUND_VOLUME_DEFAULT = 0.3`
+- All 4 Replicate model names extracted:
+  - `REPLICATE_MODEL_LLAMA`, `REPLICATE_MODEL_CHATTERBOX`, `REPLICATE_MODEL_DEMUCS`, `REPLICATE_MODEL_DIARIZATION`
+- Updated all usages in cloud_translate.py to import from config
+
+**Learnings:**
+- The file had more magic numbers than the AC specified - included additional ones for completeness
+- Model names with version hashes are particularly important to centralize for easy updates
+- Grouped related constants together with section comments for maintainability
+- Some constants (like VOICE_SAMPLE_DURATION_SECONDS=10) weren't being used - left in config.py for future use
+
