@@ -650,6 +650,50 @@ def synthesize_segments_multi_speaker(
     return output_path
 
 
+def mix_audio_with_background(
+    speech_path: Path,
+    background_path: Path,
+    output_path: Optional[Path] = None,
+    background_volume: float = 0.3,
+) -> Path:
+    """Mix translated speech with original background audio using ffmpeg.
+
+    Args:
+        speech_path: Path to the translated speech WAV file (100% volume)
+        background_path: Path to the background audio WAV file
+        output_path: Output path for the mixed audio. If None, uses OUTPUT_DIR/"mixed_audio.wav"
+        background_volume: Volume level for background audio (0.0 to 1.0, default 0.3 = 30%)
+
+    Returns:
+        Path to the mixed audio file
+
+    The output duration matches the speech track. If background is shorter,
+    it's padded with silence. If background is longer, it's trimmed.
+    """
+    if output_path is None:
+        output_path = OUTPUT_DIR / "mixed_audio.wav"
+
+    # Clamp background volume to valid range
+    background_volume = max(0.0, min(1.0, background_volume))
+
+    # Use ffmpeg to mix the audio tracks
+    # - First input (speech) at full volume
+    # - Second input (background) at configurable volume
+    # - Output duration matches the speech track (shortest=0 with apad on background)
+    subprocess.run([
+        'ffmpeg',
+        '-i', str(speech_path),
+        '-i', str(background_path),
+        '-filter_complex',
+        f'[1:a]apad,volume={background_volume}[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0',
+        '-ac', '2',  # Stereo output
+        '-y',
+        str(output_path)
+    ], capture_output=True, check=True)
+
+    return output_path
+
+
 def merge_audio_video(video_path: Path, audio_path: Path, output_name: str,
                       tracker: ProgressTracker, update_fn: Callable) -> Path:
     """Merge translated audio with original video."""
