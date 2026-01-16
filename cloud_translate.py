@@ -46,6 +46,7 @@ REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "/tmp/yt-translate"))
 MAX_VIDEO_DURATION = int(os.getenv("MAX_VIDEO_DURATION", "600"))  # 10 minutes default
 PROCESSING_RATE = int(os.getenv("PROCESSING_RATE", "50"))  # $0.50 per minute default
+MINIMUM_PURCHASE_CENTS = int(os.getenv("MINIMUM_PURCHASE_CENTS", "299"))  # $2.99 minimum purchase
 PREVIEW_DURATION_SECONDS = int(os.getenv("PREVIEW_DURATION_SECONDS", "60"))  # Free preview duration
 
 # Rate limiting configuration
@@ -2130,6 +2131,13 @@ async def create_checkout(
 
     # Calculate price
     processing_cost = calculate_processing_cost(duration)
+
+    # Enforce minimum purchase amount
+    if processing_cost < MINIMUM_PURCHASE_CENTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Minimum purchase is ${MINIMUM_PURCHASE_CENTS / 100:.2f}. Video too short."
+        )
 
     # Create translation job record
     try:
