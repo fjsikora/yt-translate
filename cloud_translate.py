@@ -26,7 +26,7 @@ import time
 import uuid
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Literal, Optional
 from contextlib import asynccontextmanager
 
 # Configure logging
@@ -1470,31 +1470,97 @@ async def merge_audio_video(
     return output_path
 
 
-async def process_translation(job_id: str, video_url: str, target_language: str):
-    """
-    Main translation pipeline.
+# Type alias for job types
+JobType = Literal["legacy", "preview", "paid"]
 
-    Pipeline: download -> separate -> diarize -> transcribe -> translate -> TTS -> mix -> subtitles -> merge
+
+async def process_video_translation(
+    job_id: str,
+    video_url: str,
+    target_language: str,
+    duration_limit: Optional[int],
+    job_type: JobType
+) -> None:
     """
+    Unified video translation pipeline.
+
+    Consolidates the common processing logic from process_translation, process_preview,
+    and process_full_translation into a single parameterized function.
+
+    Pipeline: download -> separate -> diarize -> transcribe -> translate -> TTS -> mix -> subtitles -> merge -> upload
+
+    Args:
+        job_id: Unique identifier for the job
+        video_url: URL of the video to translate
+        target_language: Target language code (e.g., "es", "fr")
+        duration_limit: Maximum duration in seconds to process (None for full video)
+        job_type: Type of job - determines update callbacks and upload behavior
+            - 'legacy': Uses in-memory update_job, no cloud upload
+            - 'preview': Uses db.update_preview_job, uploads to preview storage
+            - 'paid': Uses db.update_translation_job, uploads to translation storage
+    """
+    # Select the appropriate update callback based on job type
+    def get_update_callback() -> Callable[..., Any]:
+        if job_type == "legacy":
+            return lambda jid, **kwargs: update_job(jid, **kwargs)
+        elif job_type == "preview":
+            return lambda jid, **kwargs: db.update_preview_job(jid, **kwargs)
+        else:  # paid
+            return lambda jid, **kwargs: db.update_translation_job(jid, **kwargs)
+
+    update_callback = get_update_callback()
+
+    # Determine upload function and completion field names based on job type
+    def upload_to_storage(output_path: str) -> Optional[str]:
+        if job_type == "legacy":
+            return None  # Legacy jobs don't upload to cloud storage
+        elif job_type == "preview":
+            return db.upload_preview_to_storage(job_id, output_path)
+        else:  # paid
+            return db.upload_translation_to_storage(job_id, output_path)
+
     try:
-        update_job(job_id, status="processing", progress=0)
+        # Initialize job tracking in memory for helper functions (all job types need this)
+        jobs[job_id] = {
+            "job_id": job_id,
+            "status": "processing",
+            "progress": 0,
+            "stage": "initializing",
+            "created_at": time.time(),
+        }
 
-        # 1. Download video
-        video_path, audio_path, info = await download_video(video_url, job_id)
+        # Update status via callback
+        update_callback(job_id, status="processing", progress=0, stage="initializing")
+
+        # 1. Download video (with optional duration limit)
+        update_callback(job_id, stage="download", progress=5)
+        video_path, audio_path, info = await download_video(
+            video_url, job_id, duration_limit=duration_limit
+        )
+        update_callback(job_id, progress=25)
 
         # 2. Separate audio into vocals and background
+        update_callback(job_id, stage="separate", progress=26)
         vocals_path, background_path = await separate_audio(audio_path, job_id)
+        update_callback(job_id, progress=30)
 
         # 3. Run speaker diarization on vocals
+        update_callback(job_id, stage="diarize", progress=31)
         diarization_segments, speaker_voice_urls = await diarize_speakers(vocals_path, job_id)
+        update_callback(job_id, progress=40)
 
         # 4. Transcribe vocals (cleaner input without background noise)
+        update_callback(job_id, stage="transcribe", progress=41)
         segments = await transcribe_audio(vocals_path, job_id)
+        update_callback(job_id, progress=48)
 
         # 5. Translate segments (preserves timestamps)
+        update_callback(job_id, stage="translate", progress=50)
         translated_segments = await translate_segments_llm(segments, target_language, job_id)
+        update_callback(job_id, progress=55)
 
-        # 6. Synthesize (TTS) - use multi-speaker if diarization available, else single speaker
+        # 6. Synthesize speech (TTS) - use multi-speaker if diarization available
+        update_callback(job_id, stage="synthesize", progress=60)
         if speaker_voice_urls and diarization_segments:
             # Multi-speaker synthesis using per-segment voice matching
             new_audio = await synthesize_segments_multi_speaker(
@@ -1510,44 +1576,134 @@ async def process_translation(job_id: str, video_url: str, target_language: str)
                 seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
             )
             new_audio = await synthesize_speech(translated_text, vocals_path, target_language, job_id)
+        update_callback(job_id, progress=82)
 
         # 7. Mix translated speech with original background audio (30% volume)
-        update_job(job_id, stage="mix", progress=86)
+        update_callback(job_id, stage="mix", progress=83)
         # Only mix if background_path is different from audio_path (separation succeeded)
         if background_path != audio_path:
             mixed_audio = mix_audio_with_background(new_audio, background_path)
         else:
             mixed_audio = new_audio
+        update_callback(job_id, progress=85)
 
         # 8. Generate SRT subtitles from translated segments
-        update_job(job_id, stage="subtitles", progress=88)
+        update_callback(job_id, stage="subtitles", progress=86)
         subtitle_path = generate_srt(translated_segments, job_id=job_id)
         subtitle_lang = get_iso_639_2_code(target_language)
+        update_callback(job_id, progress=88)
 
-        # 9. Merge audio and video with embedded subtitles
-        output = await merge_audio_video(
+        # 9. Merge translated audio with video (with embedded subtitles)
+        update_callback(job_id, stage="merge", progress=90)
+        output_path = await merge_audio_video(
             video_path, mixed_audio, job_id, info["title"],
             subtitle_path=subtitle_path, subtitle_lang=subtitle_lang
         )
+        update_callback(job_id, progress=95)
 
-        # Update job as completed
-        update_job(
-            job_id,
-            status="completed",
-            progress=100,
-            stage="done",
-            output_file=str(output),
-            output_url=f"/download/{job_id}"
-        )
+        # 10. Upload to cloud storage (if applicable)
+        storage_path = upload_to_storage(str(output_path))
+
+        # 11. Update job as completed with appropriate fields
+        if job_type == "legacy":
+            update_callback(
+                job_id,
+                status="completed",
+                progress=100,
+                stage="done",
+                output_file=str(output_path),
+                output_url=f"/download/{job_id}"
+            )
+        elif job_type == "preview":
+            update_callback(job_id, stage="upload", progress=95)
+            db.update_preview_job(
+                job_id,
+                status="completed",
+                progress=100,
+                stage="done",
+                preview_file_path=storage_path
+            )
+            # Also update in-memory job
+            update_job(
+                job_id,
+                status="completed",
+                progress=100,
+                stage="done",
+                output_file=str(output_path)
+            )
+        else:  # paid
+            update_callback(job_id, stage="upload", progress=95)
+            db.update_translation_job(
+                job_id,
+                status="completed",
+                progress=100,
+                stage="done",
+                output_file_path=storage_path
+            )
+            # Also update in-memory job
+            update_job(
+                job_id,
+                status="completed",
+                progress=100,
+                stage="done",
+                output_file=str(output_path)
+            )
 
     except Exception as e:
-        update_job(
-            job_id,
-            status="failed",
-            error=str(e),
-            stage="error"
-        )
+        # Update error state based on job type
+        if job_type == "legacy":
+            update_job(
+                job_id,
+                status="failed",
+                error=str(e),
+                stage="error"
+            )
+        elif job_type == "preview":
+            db.update_preview_job(
+                job_id,
+                status="failed",
+                error_message=str(e),
+                stage="error"
+            )
+            if job_id in jobs:
+                update_job(
+                    job_id,
+                    status="failed",
+                    error=str(e),
+                    stage="error"
+                )
+        else:  # paid
+            db.update_translation_job(
+                job_id,
+                status="failed",
+                error_message=str(e),
+                stage="error"
+            )
+            if job_id in jobs:
+                update_job(
+                    job_id,
+                    status="failed",
+                    error=str(e),
+                    stage="error"
+                )
         raise
+
+
+async def process_translation(job_id: str, video_url: str, target_language: str):
+    """
+    Main translation pipeline (legacy).
+
+    Pipeline: download -> separate -> diarize -> transcribe -> translate -> TTS -> mix -> subtitles -> merge
+
+    Note: This is a backwards-compatible wrapper around process_video_translation.
+    """
+    await process_video_translation(
+        job_id=job_id,
+        video_url=video_url,
+        target_language=target_language,
+        duration_limit=None,
+        job_type="legacy"
+    )
 
 
 def calculate_processing_cost(duration_seconds: int) -> int:
@@ -1721,126 +1877,16 @@ async def process_preview(preview_id: str, video_url: str, target_language: str)
 
     Uses PREVIEW_DURATION_SECONDS to limit the video/audio duration.
     Pipeline: download -> separate -> diarize -> transcribe -> translate -> TTS -> mix -> subtitles -> merge -> upload
+
+    Note: This is a backwards-compatible wrapper around process_video_translation.
     """
-    try:
-        # Initialize job tracking in memory for helper functions
-        jobs[preview_id] = {
-            "job_id": preview_id,
-            "status": "processing",
-            "progress": 0,
-            "stage": "initializing",
-            "created_at": time.time(),
-        }
-
-        # Update status in database
-        db.update_preview_job(preview_id, status="processing", progress=0, stage="initializing")
-
-        # 1. Download first PREVIEW_DURATION_SECONDS of video
-        db.update_preview_job(preview_id, stage="download", progress=5)
-        video_path, audio_path, info = await download_video(
-            video_url, preview_id, duration_limit=PREVIEW_DURATION_SECONDS
-        )
-        db.update_preview_job(preview_id, progress=25)
-
-        # 2. Separate audio into vocals and background
-        db.update_preview_job(preview_id, stage="separate", progress=26)
-        vocals_path, background_path = await separate_audio(audio_path, preview_id)
-        db.update_preview_job(preview_id, progress=30)
-
-        # 3. Run speaker diarization on vocals
-        db.update_preview_job(preview_id, stage="diarize", progress=31)
-        diarization_segments, speaker_voice_urls = await diarize_speakers(vocals_path, preview_id)
-        db.update_preview_job(preview_id, progress=40)
-
-        # 4. Transcribe vocals (cleaner input without background noise)
-        db.update_preview_job(preview_id, stage="transcribe", progress=41)
-        segments = await transcribe_audio(vocals_path, preview_id)
-        db.update_preview_job(preview_id, progress=48)
-
-        # 5. Translate segments (preserves timestamps)
-        db.update_preview_job(preview_id, stage="translate", progress=50)
-        translated_segments = await translate_segments_llm(segments, target_language, preview_id)
-        db.update_preview_job(preview_id, progress=55)
-
-        # 6. Synthesize speech (TTS) - use multi-speaker if diarization available
-        db.update_preview_job(preview_id, stage="synthesize", progress=60)
-        if speaker_voice_urls and diarization_segments:
-            # Multi-speaker synthesis using per-segment voice matching
-            new_audio = await synthesize_segments_multi_speaker(
-                translated_segments=translated_segments,
-                diarization_segments=diarization_segments,
-                speaker_voice_urls=speaker_voice_urls,
-                target_lang=target_language,
-                job_id=preview_id
-            )
-        else:
-            # Fallback: single speaker synthesis (combine all text)
-            translated_text = " ".join(
-                seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
-            )
-            new_audio = await synthesize_speech(translated_text, vocals_path, target_language, preview_id)
-        db.update_preview_job(preview_id, progress=82)
-
-        # 7. Mix translated speech with original background audio (30% volume)
-        db.update_preview_job(preview_id, stage="mix", progress=83)
-        # Only mix if background_path is different from audio_path (separation succeeded)
-        if background_path != audio_path:
-            mixed_audio = mix_audio_with_background(new_audio, background_path)
-        else:
-            mixed_audio = new_audio
-        db.update_preview_job(preview_id, progress=85)
-
-        # 8. Generate SRT subtitles from translated segments
-        db.update_preview_job(preview_id, stage="subtitles", progress=86)
-        subtitle_path = generate_srt(translated_segments, job_id=preview_id)
-        subtitle_lang = get_iso_639_2_code(target_language)
-        db.update_preview_job(preview_id, progress=88)
-
-        # 9. Merge translated audio with video (with embedded subtitles)
-        db.update_preview_job(preview_id, stage="merge", progress=90)
-        output_path = await merge_audio_video(
-            video_path, mixed_audio, preview_id, info["title"],
-            subtitle_path=subtitle_path, subtitle_lang=subtitle_lang
-        )
-        db.update_preview_job(preview_id, progress=95)
-
-        # 10. Upload to Supabase Storage
-        db.update_preview_job(preview_id, stage="upload", progress=95)
-        storage_path = db.upload_preview_to_storage(preview_id, str(output_path))
-
-        # 11. Update job as completed with file path
-        db.update_preview_job(
-            preview_id,
-            status="completed",
-            progress=100,
-            stage="done",
-            preview_file_path=storage_path
-        )
-
-        # Update in-memory job
-        update_job(
-            preview_id,
-            status="completed",
-            progress=100,
-            stage="done",
-            output_file=str(output_path)
-        )
-
-    except Exception as e:
-        # Update both database and in-memory state
-        db.update_preview_job(
-            preview_id,
-            status="failed",
-            error_message=str(e),
-            stage="error"
-        )
-        if preview_id in jobs:
-            update_job(
-                preview_id,
-                status="failed",
-                error=str(e),
-                stage="error"
-            )
+    await process_video_translation(
+        job_id=preview_id,
+        video_url=video_url,
+        target_language=target_language,
+        duration_limit=PREVIEW_DURATION_SECONDS,
+        job_type="preview"
+    )
 
 
 @app.post("/preview", response_model=PreviewResponse)
@@ -2891,131 +2937,16 @@ async def process_full_translation(translation_job_id: str, video_url: str, targ
 
     Note: Could optimize by reusing preview transcription for first 60 seconds,
     but for simplicity we re-process the entire video to ensure quality.
+
+    Note: This is a backwards-compatible wrapper around process_video_translation.
     """
-    try:
-        # Initialize job tracking in memory for helper functions
-        jobs[translation_job_id] = {
-            "job_id": translation_job_id,
-            "status": "processing",
-            "progress": 0,
-            "stage": "initializing",
-            "created_at": time.time(),
-        }
-
-        # Update status in database
-        db.update_translation_job(
-            translation_job_id,
-            status="processing",
-            progress=0,
-            stage="initializing"
-        )
-
-        # 1. Download full video (no duration limit)
-        db.update_translation_job(translation_job_id, stage="download", progress=5)
-        video_path, audio_path, info = await download_video(
-            video_url, translation_job_id, duration_limit=None
-        )
-        db.update_translation_job(translation_job_id, progress=25)
-
-        # 2. Separate audio into vocals and background
-        db.update_translation_job(translation_job_id, stage="separate", progress=26)
-        vocals_path, background_path = await separate_audio(audio_path, translation_job_id)
-        db.update_translation_job(translation_job_id, progress=30)
-
-        # 3. Run speaker diarization on vocals
-        db.update_translation_job(translation_job_id, stage="diarize", progress=31)
-        diarization_segments, speaker_voice_urls = await diarize_speakers(vocals_path, translation_job_id)
-        db.update_translation_job(translation_job_id, progress=40)
-
-        # 4. Transcribe vocals (cleaner input without background noise)
-        db.update_translation_job(translation_job_id, stage="transcribe", progress=41)
-        segments = await transcribe_audio(vocals_path, translation_job_id)
-        db.update_translation_job(translation_job_id, progress=48)
-
-        # 5. Translate segments (preserves timestamps)
-        db.update_translation_job(translation_job_id, stage="translate", progress=50)
-        translated_segments = await translate_segments_llm(segments, target_language, translation_job_id)
-        db.update_translation_job(translation_job_id, progress=55)
-
-        # 6. Synthesize speech (TTS) - use multi-speaker if diarization available
-        db.update_translation_job(translation_job_id, stage="synthesize", progress=60)
-        if speaker_voice_urls and diarization_segments:
-            # Multi-speaker synthesis using per-segment voice matching
-            new_audio = await synthesize_segments_multi_speaker(
-                translated_segments=translated_segments,
-                diarization_segments=diarization_segments,
-                speaker_voice_urls=speaker_voice_urls,
-                target_lang=target_language,
-                job_id=translation_job_id
-            )
-        else:
-            # Fallback: single speaker synthesis (combine all text)
-            translated_text = " ".join(
-                seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
-            )
-            new_audio = await synthesize_speech(translated_text, vocals_path, target_language, translation_job_id)
-        db.update_translation_job(translation_job_id, progress=82)
-
-        # 7. Mix translated speech with original background audio (30% volume)
-        db.update_translation_job(translation_job_id, stage="mix", progress=83)
-        # Only mix if background_path is different from audio_path (separation succeeded)
-        if background_path != audio_path:
-            mixed_audio = mix_audio_with_background(new_audio, background_path)
-        else:
-            mixed_audio = new_audio
-        db.update_translation_job(translation_job_id, progress=85)
-
-        # 8. Generate SRT subtitles from translated segments
-        db.update_translation_job(translation_job_id, stage="subtitles", progress=86)
-        subtitle_path = generate_srt(translated_segments, job_id=translation_job_id)
-        subtitle_lang = get_iso_639_2_code(target_language)
-        db.update_translation_job(translation_job_id, progress=88)
-
-        # 9. Merge translated audio with video (with embedded subtitles)
-        db.update_translation_job(translation_job_id, stage="merge", progress=90)
-        output_path = await merge_audio_video(
-            video_path, mixed_audio, translation_job_id, info["title"],
-            subtitle_path=subtitle_path, subtitle_lang=subtitle_lang
-        )
-        db.update_translation_job(translation_job_id, progress=95)
-
-        # 10. Upload to Supabase Storage
-        db.update_translation_job(translation_job_id, stage="upload", progress=95)
-        storage_path = db.upload_translation_to_storage(translation_job_id, str(output_path))
-
-        # 11. Update job as completed with file path
-        db.update_translation_job(
-            translation_job_id,
-            status="completed",
-            progress=100,
-            stage="done",
-            output_file_path=storage_path
-        )
-
-        # Update in-memory job
-        update_job(
-            translation_job_id,
-            status="completed",
-            progress=100,
-            stage="done",
-            output_file=str(output_path)
-        )
-
-    except Exception as e:
-        # Update both database and in-memory state
-        db.update_translation_job(
-            translation_job_id,
-            status="failed",
-            error_message=str(e),
-            stage="error"
-        )
-        if translation_job_id in jobs:
-            update_job(
-                translation_job_id,
-                status="failed",
-                error=str(e),
-                stage="error"
-            )
+    await process_video_translation(
+        job_id=translation_job_id,
+        video_url=video_url,
+        target_language=target_language,
+        duration_limit=None,
+        job_type="paid"
+    )
 
 
 @app.post("/translate", response_model=JobStatus)
