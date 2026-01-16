@@ -86,6 +86,33 @@ GOOGLE_LANG_CODES = {
     "Turkish": "tr",
 }
 
+# ISO 639-1 (2-letter) to ISO 639-2 (3-letter) mapping for ffmpeg subtitle metadata
+ISO_639_1_TO_639_2 = {
+    "ar": "ara",
+    "zh": "chi",
+    "da": "dan",
+    "nl": "dut",
+    "en": "eng",
+    "fi": "fin",
+    "fr": "fre",
+    "de": "ger",
+    "el": "gre",
+    "he": "heb",
+    "hi": "hin",
+    "it": "ita",
+    "ja": "jpn",
+    "ko": "kor",
+    "ms": "may",
+    "no": "nor",
+    "pl": "pol",
+    "pt": "por",
+    "ru": "rus",
+    "es": "spa",
+    "sw": "swa",
+    "sv": "swe",
+    "tr": "tur",
+}
+
 WHISPER_MODEL = "base"
 OUTPUT_DIR = Path("output")
 console = Console()
@@ -752,9 +779,38 @@ def mix_audio_with_background(
     return output_path
 
 
+def get_iso_639_2_code(lang_code: str) -> str:
+    """Convert ISO 639-1 (2-letter) language code to ISO 639-2 (3-letter) code.
+
+    Args:
+        lang_code: 2-letter or 3-letter language code
+
+    Returns:
+        3-letter ISO 639-2 language code for ffmpeg metadata
+    """
+    if len(lang_code) == 3:
+        return lang_code
+    return ISO_639_1_TO_639_2.get(lang_code, "eng")
+
+
 def merge_audio_video(video_path: Path, audio_path: Path, output_name: str,
-                      tracker: ProgressTracker, update_fn: Callable) -> Path:
-    """Merge translated audio with original video."""
+                      tracker: ProgressTracker, update_fn: Callable,
+                      subtitle_path: Optional[Path] = None,
+                      subtitle_lang: str = "eng") -> Path:
+    """Merge translated audio with original video, optionally embedding subtitles.
+
+    Args:
+        video_path: Path to the video file
+        audio_path: Path to the translated audio file
+        output_name: Base name for the output file
+        tracker: Progress tracker for UI updates
+        update_fn: Callback function for progress updates
+        subtitle_path: Optional path to SRT subtitle file
+        subtitle_lang: ISO 639-2 language code for subtitle metadata (default: "eng")
+
+    Returns:
+        Path to the merged output video file
+    """
     output_path = OUTPUT_DIR / f"{output_name}_translated.mp4"
 
     # Get file sizes for progress info
@@ -767,24 +823,55 @@ def merge_audio_video(video_path: Path, audio_path: Path, output_name: str,
     video_size = format_size(video_path.stat().st_size)
     audio_size = format_size(audio_path.stat().st_size)
 
-    tracker.update_detail("merge", f"Merging video ({video_size}) + audio ({audio_size})...")
+    if subtitle_path and subtitle_path.exists():
+        tracker.update_detail("merge", f"Merging video ({video_size}) + audio ({audio_size}) + subtitles...")
+    else:
+        tracker.update_detail("merge", f"Merging video ({video_size}) + audio ({audio_size})...")
     update_fn()
 
-    subprocess.run([
+    # Build ffmpeg command
+    cmd = [
         'ffmpeg',
         '-i', str(video_path),
         '-i', str(audio_path),
-        '-c:v', 'copy',
-        '-map', '0:v:0',
-        '-map', '1:a:0',
+    ]
+
+    # Add subtitle input if provided
+    if subtitle_path and subtitle_path.exists():
+        cmd.extend(['-i', str(subtitle_path)])
+
+    # Video codec: copy (no re-encoding)
+    cmd.extend(['-c:v', 'copy'])
+
+    # Map video from first input
+    cmd.extend(['-map', '0:v:0'])
+
+    # Map audio from second input
+    cmd.extend(['-map', '1:a:0'])
+
+    # Map and encode subtitles if provided
+    if subtitle_path and subtitle_path.exists():
+        # Map subtitle from third input
+        cmd.extend(['-map', '2:0'])
+        # Use mov_text codec for MP4 soft subs (toggleable)
+        cmd.extend(['-c:s', 'mov_text'])
+        # Set subtitle language metadata
+        cmd.extend(['-metadata:s:s:0', f'language={subtitle_lang}'])
+
+    cmd.extend([
         '-shortest',
         '-y',
         str(output_path)
-    ], capture_output=True, check=True)
+    ])
+
+    subprocess.run(cmd, capture_output=True, check=True)
 
     # Show output file size
     output_size = format_size(output_path.stat().st_size)
-    tracker.update_detail("merge", f"Created {output_path.name} ({output_size})")
+    if subtitle_path and subtitle_path.exists():
+        tracker.update_detail("merge", f"Created {output_path.name} ({output_size}) with subtitles")
+    else:
+        tracker.update_detail("merge", f"Created {output_path.name} ({output_size})")
     update_fn()
 
     return output_path
