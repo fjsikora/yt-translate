@@ -89,7 +89,7 @@ class AudioSeparator:
             audio_file = AudioFile(audio_path)
             wav = audio_file.read(
                 seek_time=0,
-                duration=-1,  # Full duration
+                duration=None,  # Full duration (None = read entire file)
                 streams=0,
             )
 
@@ -238,7 +238,7 @@ class SpeakerDiarizer:
 
                 self._pipeline = Pipeline.from_pretrained(
                     "pyannote/speaker-diarization-3.1",
-                    use_auth_token=self.hf_token,
+                    token=self.hf_token,
                 )
                 self._pipeline.to(torch.device(self.device))
             except ImportError as e:
