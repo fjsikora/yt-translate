@@ -157,3 +157,30 @@
 - Wrappers still do path parsing for backwards compatibility with existing callers that pass full paths
 - Could potentially simplify further by having callers pass bucket+path directly, but would break API
 
+## US-008: Create Unified Pipeline Function - COMPLETE
+
+**Date:** 2026-01-16
+**Files changed:**
+- cloud_translate.py
+
+**Implementation notes:**
+- Created `process_video_translation(job_id, video_url, target_language, duration_limit, job_type)` function
+- Added `JobType = Literal["legacy", "preview", "paid"]` type alias for type safety
+- Function uses nested closures to select appropriate callbacks:
+  - `get_update_callback()` returns the right DB update function based on job_type
+  - `upload_to_storage()` returns the right upload function based on job_type
+- Handles differences in completion:
+  - Legacy: sets output_file and output_url, no cloud upload
+  - Preview: uploads to preview storage, sets preview_file_path
+  - Paid: uploads to translation storage, sets output_file_path
+- Error handling also customized per job_type (different error field names)
+- Refactored all 3 original functions as thin wrappers (5-10 lines each)
+- Net change: -69 lines (271 removed, 202 added)
+
+**Learnings:**
+- The three pipeline functions had nearly identical logic (10 steps each)
+- Main differences were: duration_limit, DB update function, upload function, completion field names
+- Using closures for callbacks keeps the implementation clean without passing callbacks as parameters
+- Added `Any` type import for callback return type flexibility
+- The unified function is a significant DRY improvement - future pipeline changes need only one place
+
