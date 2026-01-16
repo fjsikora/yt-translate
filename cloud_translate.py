@@ -1996,6 +1996,43 @@ async def create_preview(
     )
 
 
+def verify_preview_access(
+    preview_job: dict,
+    session_id: Optional[str],
+    user_id: Optional[str]
+) -> None:
+    """
+    Verify that the requester has access to the preview job.
+
+    Access control:
+    - Guests can access by providing matching session_id
+    - Logged-in users can access by providing matching user_id
+
+    Args:
+        preview_job: The preview job dictionary from database
+        session_id: Optional session ID from the request
+        user_id: Optional user ID from the request
+
+    Raises:
+        HTTPException(403): If access is denied (requester doesn't own the preview)
+    """
+    job_session_id = preview_job.get("session_id")
+    job_user_id = preview_job.get("user_id")
+
+    # Check if the requester owns this preview
+    has_access = False
+    if session_id and job_session_id == session_id:
+        has_access = True
+    if user_id and job_user_id == user_id:
+        has_access = True
+
+    if not has_access:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. You do not have permission to view this preview."
+        )
+
+
 @app.get("/preview/{preview_id}", response_model=PreviewStatusResponse)
 async def get_preview_status(
     preview_id: str,
@@ -2028,21 +2065,7 @@ async def get_preview_status(
         raise HTTPException(status_code=404, detail="Preview job not found")
 
     # Access control: verify ownership
-    job_session_id = preview_job.get("session_id")
-    job_user_id = preview_job.get("user_id")
-
-    # Check if the requester owns this preview
-    has_access = False
-    if session_id and job_session_id == session_id:
-        has_access = True
-    if user_id and job_user_id == user_id:
-        has_access = True
-
-    if not has_access:
-        raise HTTPException(
-            status_code=403,
-            detail="Access denied. You do not have permission to view this preview."
-        )
+    verify_preview_access(preview_job, session_id, user_id)
 
     # Build response
     status = preview_job.get("status", "pending")
@@ -2125,21 +2148,7 @@ async def get_preview_video(
         raise HTTPException(status_code=404, detail="Preview job not found")
 
     # Access control: verify ownership
-    job_session_id = preview_job.get("session_id")
-    job_user_id = preview_job.get("user_id")
-
-    # Check if the requester owns this preview
-    has_access = False
-    if session_id and job_session_id == session_id:
-        has_access = True
-    if user_id and job_user_id == user_id:
-        has_access = True
-
-    if not has_access:
-        raise HTTPException(
-            status_code=403,
-            detail="Access denied. You do not have permission to view this preview."
-        )
+    verify_preview_access(preview_job, session_id, user_id)
 
     # Verify preview is completed
     status = preview_job.get("status")
