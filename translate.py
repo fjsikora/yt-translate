@@ -392,9 +392,13 @@ def translate_segments(segments: list[dict], target_lang: str, tracker: Progress
 
 def synthesize_segments(segments: list[dict], voice_sample: Path, lang_code: str,
                         total_duration: float, tracker: ProgressTracker, update_fn: Callable) -> Path:
-    """Generate speech for each segment with time-stretching to match original timing."""
+    """Generate speech for each segment at natural speed without time-stretching.
+
+    Audio plays at natural 1x speed. Segment start times are adjusted to prevent
+    overlap - if a segment hasn't finished, the next one waits for it to complete.
+    This eliminates echo/reverb artifacts caused by time-stretching.
+    """
     import numpy as np
-    import librosa
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     device_name = "GPU" if device == "cuda" else "CPU"
@@ -410,24 +414,21 @@ def synthesize_segments(segments: list[dict], voice_sample: Path, lang_code: str
     tracker.update_detail("synthesize", f"Analyzing voice from {voice_sample.name}...")
     update_fn()
 
-    # Process each segment
+    # Process each segment and collect audio with original start times
     total_segments = len(segments)
-    segment_audios = []
+    segment_audios: list[tuple[float, np.ndarray]] = []  # (original_start, audio)
 
     for i, seg in enumerate(segments):
         text = seg["translated_text"]
-        target_duration = seg["duration"]
 
-        if not text or target_duration <= 0:
-            # Add silence for empty segments
-            silence = np.zeros(int(target_duration * sample_rate))
-            segment_audios.append((seg["start"], silence))
+        if not text:
+            # Skip empty segments entirely
             continue
 
         tracker.update_detail("synthesize", f"Generating segment {i+1}/{total_segments}: {text[:30]}...")
         update_fn()
 
-        # Generate speech for this segment
+        # Generate speech for this segment at natural speed (no time-stretching)
         wav = model.generate(
             text,
             audio_prompt_path=str(voice_sample),
@@ -436,41 +437,43 @@ def synthesize_segments(segments: list[dict], voice_sample: Path, lang_code: str
 
         # Convert to numpy
         audio_np = wav.squeeze().cpu().numpy()
-        actual_duration = len(audio_np) / sample_rate
-
-        # Time-stretch to match target duration
-        if actual_duration > 0 and abs(actual_duration - target_duration) > 0.1:
-            stretch_ratio = actual_duration / target_duration
-            # Clamp stretch ratio to reasonable bounds (0.5x to 2.0x)
-            stretch_ratio = max(0.5, min(2.0, stretch_ratio))
-
-            tracker.update_detail("synthesize", f"Segment {i+1}: stretching {actual_duration:.1f}s → {target_duration:.1f}s...")
-            update_fn()
-
-            # Use librosa for time-stretching (preserves pitch)
-            audio_np = librosa.effects.time_stretch(audio_np, rate=stretch_ratio)
-
         segment_audios.append((seg["start"], audio_np))
 
-    # Combine all segments with proper timing
-    tracker.update_detail("synthesize", "Combining segments with timing...")
+    # Combine all segments with adjusted timing to prevent overlap
+    # Each segment starts at max(original_start, previous_segment_end)
+    tracker.update_detail("synthesize", "Combining segments (natural timing, no stretching)...")
     update_fn()
 
-    # Create output array for full duration
-    output_length = int(total_duration * sample_rate)
+    # First pass: calculate actual positions to determine total length
+    positioned_audios: list[tuple[float, np.ndarray]] = []
+    current_end_time = 0.0
+
+    for original_start, audio in segment_audios:
+        audio_duration = len(audio) / sample_rate
+
+        # Start at the later of: original timestamp or when previous segment ends
+        actual_start = max(original_start, current_end_time)
+        positioned_audios.append((actual_start, audio))
+
+        # Update end time for next segment
+        current_end_time = actual_start + audio_duration
+
+    # Calculate actual output length (may be longer than original video)
+    actual_total_duration = max(total_duration, current_end_time)
+    output_length = int(actual_total_duration * sample_rate)
     output_audio = np.zeros(output_length)
 
-    for start_time, audio in segment_audios:
+    # Second pass: place audio at calculated positions
+    for start_time, audio in positioned_audios:
         start_sample = int(start_time * sample_rate)
         end_sample = start_sample + len(audio)
 
-        # Ensure we don't overflow
+        # Ensure we don't overflow (shouldn't happen with calculated length)
         if end_sample > output_length:
             audio = audio[:output_length - start_sample]
-            end_sample = output_length
 
-        # Mix audio (in case of overlaps, though there shouldn't be any)
-        output_audio[start_sample:start_sample + len(audio)] += audio
+        # Place audio (no overlap possible with our timing logic)
+        output_audio[start_sample:start_sample + len(audio)] = audio
 
     # Normalize to prevent clipping
     max_val = np.max(np.abs(output_audio))
@@ -484,7 +487,7 @@ def synthesize_segments(segments: list[dict], voice_sample: Path, lang_code: str
     wav.write(str(output_path), sample_rate, audio_int16)
 
     audio_duration = len(output_audio) / sample_rate
-    tracker.update_detail("synthesize", f"Saved {audio_duration:.1f}s audio matching video timing")
+    tracker.update_detail("synthesize", f"Saved {audio_duration:.1f}s audio (natural speed)")
     update_fn()
 
     return output_path
