@@ -389,3 +389,39 @@ output = replicate.run(
 - The speaker_id parameter in upload_voice_sample enables future multi-speaker support (US-014)
 - Default cfg_weight=0.5 and exaggeration=0.5 provide balanced voice output
 
+
+## US-013: Add Audio Separation to cloud_translate.py - COMPLETE
+
+**Date:** 2026-01-15 (iteration 13)
+**Files changed:**
+- cloud_translate.py (added import, new function, updated 3 pipeline functions)
+
+**Implementation notes:**
+- Added import: `from audio_processing import AudioSeparator`
+- Created async separate_audio() helper function:
+  - Uses AudioSeparator to separate vocals from background with Demucs
+  - Saves vocals.wav and background.wav to job directory
+  - Returns tuple of (vocals_path, background_path)
+  - Graceful fallback: returns original audio if separation fails
+- Updated three pipeline functions to use audio separation:
+  1. process_translation() - the older /translate API endpoint
+  2. process_preview() - preview pipeline for 60-second clips
+  3. process_full_translation() - full translation after payment
+- All pipelines now follow: download -> separate -> transcribe -> translate -> TTS -> merge
+- Transcription now uses isolated vocals for cleaner Whisper input
+
+**Key code pattern:**
+```python
+# 2. Separate audio into vocals and background
+vocals_path, background_path = await separate_audio(audio_path, job_id)
+
+# 3. Transcribe vocals (cleaner input without background noise)
+segments = await transcribe_audio(vocals_path, job_id)
+```
+
+**Learnings:**
+- Audio separation improves transcription quality by removing background noise
+- The background_path is stored for use in US-016 (background mixing)
+- Fallback to original audio ensures the pipeline doesn't fail completely
+- Progress percentages were adjusted to accommodate the new separation step (26-30%)
+
