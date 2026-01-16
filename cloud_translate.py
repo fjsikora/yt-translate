@@ -38,6 +38,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 import db
+from audio_processing import AudioSeparator
 
 # Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -503,6 +504,41 @@ async def synthesize_speech(
     return output_audio
 
 
+async def separate_audio(audio_path: Path, job_id: str) -> tuple[Path, Path]:
+    """
+    Separate audio into vocals and background using Demucs.
+
+    Args:
+        audio_path: Path to the input audio file
+        job_id: Job ID for progress tracking
+
+    Returns:
+        Tuple of (vocals_path, background_path)
+    """
+    update_job(job_id, stage="separate", progress=26)
+
+    job_dir = OUTPUT_DIR / job_id
+
+    try:
+        separator = AudioSeparator()
+        vocals, background, sample_rate = separator.separate(audio_path)
+
+        update_job(job_id, progress=28)
+
+        vocals_path, background_path = separator.save_separated(
+            vocals, background, sample_rate, job_dir
+        )
+
+        update_job(job_id, progress=30)
+
+        return vocals_path, background_path
+
+    except Exception as e:
+        # Fallback: if separation fails, use original audio as vocals and create empty background
+        print(f"Warning: Audio separation failed, using original audio: {e}")
+        return audio_path, audio_path
+
+
 async def merge_audio_video(video_path: Path, audio_path: Path, job_id: str, title: str) -> Path:
     """Merge translated audio with original video."""
     update_job(job_id, stage="merge", progress=90)
@@ -535,20 +571,23 @@ async def process_translation(job_id: str, video_url: str, target_language: str)
         # 1. Download video
         video_path, audio_path, info = await download_video(video_url, job_id)
 
-        # 2. Transcribe (returns segments with timestamps)
-        segments = await transcribe_audio(audio_path, job_id)
+        # 2. Separate audio into vocals and background
+        vocals_path, background_path = await separate_audio(audio_path, job_id)
 
-        # 3. Translate segments (preserves timestamps)
+        # 3. Transcribe vocals (cleaner input without background noise)
+        segments = await transcribe_audio(vocals_path, job_id)
+
+        # 4. Translate segments (preserves timestamps)
         translated_segments = await translate_segments(segments, target_language, job_id)
 
-        # 4. Synthesize (TTS) - for now, combine all translated text
+        # 5. Synthesize (TTS) - for now, combine all translated text
         # Future: US-015 will implement per-segment multi-speaker synthesis
         translated_text = " ".join(
             seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
         )
-        new_audio = await synthesize_speech(translated_text, audio_path, target_language, job_id)
+        new_audio = await synthesize_speech(translated_text, vocals_path, target_language, job_id)
 
-        # 5. Merge
+        # 6. Merge
         output = await merge_audio_video(video_path, new_audio, job_id, info["title"])
 
         # Update job as completed
@@ -741,7 +780,7 @@ async def process_preview(preview_id: str, video_url: str, target_language: str)
     Background task to process a preview translation (first 60 seconds only).
 
     Uses PREVIEW_DURATION_SECONDS to limit the video/audio duration.
-    Pipeline: download -> transcribe -> translate -> TTS -> merge -> upload
+    Pipeline: download -> separate -> transcribe -> translate -> TTS -> merge -> upload
     """
     try:
         # Initialize job tracking in memory for helper functions
@@ -762,35 +801,40 @@ async def process_preview(preview_id: str, video_url: str, target_language: str)
         )
         db.update_preview_job(preview_id, progress=25)
 
-        # 2. Transcribe audio (returns segments with timestamps)
-        db.update_preview_job(preview_id, stage="transcribe", progress=30)
-        segments = await transcribe_audio(audio_path, preview_id)
+        # 2. Separate audio into vocals and background
+        db.update_preview_job(preview_id, stage="separate", progress=26)
+        vocals_path, background_path = await separate_audio(audio_path, preview_id)
+        db.update_preview_job(preview_id, progress=30)
+
+        # 3. Transcribe vocals (cleaner input without background noise)
+        db.update_preview_job(preview_id, stage="transcribe", progress=31)
+        segments = await transcribe_audio(vocals_path, preview_id)
         db.update_preview_job(preview_id, progress=45)
 
-        # 3. Translate segments (preserves timestamps)
+        # 4. Translate segments (preserves timestamps)
         db.update_preview_job(preview_id, stage="translate", progress=50)
         translated_segments = await translate_segments(segments, target_language, preview_id)
         db.update_preview_job(preview_id, progress=55)
 
-        # 4. Synthesize speech (TTS with voice cloning)
+        # 5. Synthesize speech (TTS with voice cloning)
         # For now, combine all translated text - US-015 will add per-segment synthesis
         translated_text = " ".join(
             seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
         )
         db.update_preview_job(preview_id, stage="synthesize", progress=60)
-        new_audio = await synthesize_speech(translated_text, audio_path, target_language, preview_id)
+        new_audio = await synthesize_speech(translated_text, vocals_path, target_language, preview_id)
         db.update_preview_job(preview_id, progress=85)
 
-        # 5. Merge translated audio with video
+        # 6. Merge translated audio with video
         db.update_preview_job(preview_id, stage="merge", progress=90)
         output_path = await merge_audio_video(video_path, new_audio, preview_id, info["title"])
         db.update_preview_job(preview_id, progress=95)
 
-        # 6. Upload to Supabase Storage
+        # 7. Upload to Supabase Storage
         db.update_preview_job(preview_id, stage="upload", progress=95)
         storage_path = db.upload_preview_to_storage(preview_id, str(output_path))
 
-        # 7. Update job as completed with file path
+        # 8. Update job as completed with file path
         db.update_preview_job(
             preview_id,
             status="completed",
@@ -1850,7 +1894,7 @@ async def process_full_translation(translation_job_id: str, video_url: str, targ
     Background task to process a full video translation after payment.
 
     Processes the entire video duration (no 60-second limit).
-    Pipeline: download -> transcribe -> translate -> TTS -> merge -> upload
+    Pipeline: download -> separate -> transcribe -> translate -> TTS -> merge -> upload
 
     Note: Could optimize by reusing preview transcription for first 60 seconds,
     but for simplicity we re-process the entire video to ensure quality.
@@ -1879,35 +1923,40 @@ async def process_full_translation(translation_job_id: str, video_url: str, targ
         )
         db.update_translation_job(translation_job_id, progress=25)
 
-        # 2. Transcribe audio (returns segments with timestamps)
-        db.update_translation_job(translation_job_id, stage="transcribe", progress=30)
-        segments = await transcribe_audio(audio_path, translation_job_id)
+        # 2. Separate audio into vocals and background
+        db.update_translation_job(translation_job_id, stage="separate", progress=26)
+        vocals_path, background_path = await separate_audio(audio_path, translation_job_id)
+        db.update_translation_job(translation_job_id, progress=30)
+
+        # 3. Transcribe vocals (cleaner input without background noise)
+        db.update_translation_job(translation_job_id, stage="transcribe", progress=31)
+        segments = await transcribe_audio(vocals_path, translation_job_id)
         db.update_translation_job(translation_job_id, progress=45)
 
-        # 3. Translate segments (preserves timestamps)
+        # 4. Translate segments (preserves timestamps)
         db.update_translation_job(translation_job_id, stage="translate", progress=50)
         translated_segments = await translate_segments(segments, target_language, translation_job_id)
         db.update_translation_job(translation_job_id, progress=55)
 
-        # 4. Synthesize speech (TTS with voice cloning)
+        # 5. Synthesize speech (TTS with voice cloning)
         # For now, combine all translated text - US-015 will add per-segment synthesis
         translated_text = " ".join(
             seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
         )
         db.update_translation_job(translation_job_id, stage="synthesize", progress=60)
-        new_audio = await synthesize_speech(translated_text, audio_path, target_language, translation_job_id)
+        new_audio = await synthesize_speech(translated_text, vocals_path, target_language, translation_job_id)
         db.update_translation_job(translation_job_id, progress=85)
 
-        # 5. Merge translated audio with video
+        # 6. Merge translated audio with video
         db.update_translation_job(translation_job_id, stage="merge", progress=90)
         output_path = await merge_audio_video(video_path, new_audio, translation_job_id, info["title"])
         db.update_translation_job(translation_job_id, progress=95)
 
-        # 6. Upload to Supabase Storage
+        # 7. Upload to Supabase Storage
         db.update_translation_job(translation_job_id, stage="upload", progress=95)
         storage_path = db.upload_translation_to_storage(translation_job_id, str(output_path))
 
-        # 7. Update job as completed with file path
+        # 8. Update job as completed with file path
         db.update_translation_job(
             translation_job_id,
             status="completed",
