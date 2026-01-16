@@ -184,3 +184,26 @@
 - Added `Any` type import for callback return type flexibility
 - The unified function is a significant DRY improvement - future pipeline changes need only one place
 
+## US-009: Add Unit Tests for Audio Helpers - COMPLETE
+
+**Date:** 2026-01-16
+**Files changed:**
+- tests/__init__.py (NEW)
+- tests/test_audio_helpers.py (NEW)
+
+**Implementation notes:**
+- Created `tests/` package with empty `__init__.py`
+- Created `test_audio_helpers.py` with 11 comprehensive tests organized in 3 test classes:
+  - `TestReadWavFile`: 3 tests for 16-bit mono, stereo->mono conversion, and 32-bit WAV reading
+  - `TestWriteWavFile`: 3 tests for valid WAV creation, roundtrip fidelity, and value clipping behavior
+  - `TestResampleAudio`: 5 tests for same rate passthrough, upsampling, downsampling, DC preservation, and Chatterbox rate conversion
+- Tests use `tmp_path` pytest fixture for temporary file creation
+- Tests verify both functional correctness and edge cases (stereo conversion, out-of-range values, etc.)
+- All 11 tests pass, typecheck passes
+
+**Learnings:**
+- Installed pytest via `ensurepip` since venv didn't have pip initially
+- numpy's `testing.assert_allclose` is excellent for comparing floating-point audio data with tolerances
+- WAV file format details: 16-bit uses 32767 normalization, 32-bit uses 2147483647
+- Writing good tests for audio involves testing: format handling, channel conversion, value range normalization, and sample rate math
+
