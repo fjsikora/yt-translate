@@ -586,7 +586,7 @@ async def separate_audio(audio_path: Path, job_id: str) -> tuple[Path, Path]:
 
         # Call Replicate demucs API
         output = replicate.run(
-            "cjwbw/demucs:25a173108cff36ef9f80f854c162d01df9e6528be175794b81158fa03836d953",
+            "cjwbw/demucs",
             input={
                 "audio": data_uri,
                 "output_format": "wav",
