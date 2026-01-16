@@ -90,3 +90,32 @@
 - Stories US-002, US-003, US-004 mainly required verification and state updates
 - Future PRDs should be more granular if early stories implement too much
 
+
+## US-005: Remove Time-Stretching from translate.py - COMPLETE
+
+**Date:** 2026-01-15 23:45
+**Files changed:**
+- translate.py (modified synthesize_segments function)
+
+**Implementation notes:**
+- Removed librosa dependency entirely from translate.py
+- Removed librosa.effects.time_stretch() call that was causing echo/reverb artifacts
+- Refactored synthesize_segments() to play TTS audio at natural 1x speed
+- Implemented smart segment positioning:
+  - Each segment starts at max(original_start_time, previous_segment_end_time)
+  - This prevents overlap while avoiding word cut-offs
+  - If translated audio is longer than original, output extends accordingly
+- Empty segments are now skipped rather than filled with silence
+
+**Key changes:**
+- Lines 393-490: Complete rewrite of synthesize_segments()
+- Removed `import librosa` (local import)
+- Added typed hint: `segment_audios: list[tuple[float, np.ndarray]]`
+- Two-pass combination: first calculate positions, then place audio
+
+**Learnings:**
+- Time-stretching was the source of audio artifacts - removing it improves quality significantly
+- Natural speed playback may result in longer output, but audio quality is preserved
+- Using max(original, previous_end) for segment timing is a clean solution for preventing overlap
+- librosa was only used for time_stretch in this file - removing it simplifies dependencies
+
