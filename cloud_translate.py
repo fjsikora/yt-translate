@@ -18,6 +18,7 @@ import asyncio
 import base64
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -29,6 +30,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 import replicate
+from replicate.helpers import FileOutput
 import yt_dlp
 from deep_translator import GoogleTranslator
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Request
@@ -56,6 +58,10 @@ PREVIEW_DURATION_SECONDS = int(os.getenv("PREVIEW_DURATION_SECONDS", "60"))  # F
 # Rate limiting configuration
 PREVIEW_RATE_LIMIT = int(os.getenv("PREVIEW_RATE_LIMIT", "5"))  # Max preview requests per window
 PREVIEW_RATE_WINDOW = int(os.getenv("PREVIEW_RATE_WINDOW", "3600"))  # Window in seconds (1 hour)
+
+# Job cleanup configuration
+JOB_TTL_HOURS = int(os.getenv("JOB_TTL_HOURS", "24"))  # Hours before job cleanup (0 = disabled)
+CLEANUP_INTERVAL_MINUTES = int(os.getenv("CLEANUP_INTERVAL_MINUTES", "30"))  # Cleanup frequency
 
 # Proxy configuration for yt-dlp (to bypass YouTube bot detection)
 OXYLABS_PROXY = os.getenv("OXYLABS_PROXY")  # Format: http://user:pass@pr.oxylabs.io:7777
@@ -227,6 +233,8 @@ class TranslationJobStatusResponse(BaseModel):
 async def lifespan(app: FastAPI):
     # Startup
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"Output directory: {OUTPUT_DIR}")
+    print(f"Job TTL: {JOB_TTL_HOURS} hours, Cleanup interval: {CLEANUP_INTERVAL_MINUTES} minutes")
 
     # Check API keys
     if not OPENAI_API_KEY:
@@ -234,10 +242,28 @@ async def lifespan(app: FastAPI):
     if not REPLICATE_API_TOKEN:
         print("WARNING: REPLICATE_API_TOKEN not set")
 
+    # Start background cleanup task
+    cleanup_task = None
+    if JOB_TTL_HOURS > 0:
+        async def periodic_cleanup():
+            while True:
+                await asyncio.sleep(CLEANUP_INTERVAL_MINUTES * 60)
+                try:
+                    cleanup_old_jobs()
+                except Exception as e:
+                    print(f"Cleanup task error: {e}")
+
+        cleanup_task = asyncio.create_task(periodic_cleanup())
+
     yield
 
-    # Shutdown - cleanup old files (optional)
-    pass
+    # Shutdown - cancel cleanup task
+    if cleanup_task:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
@@ -269,6 +295,50 @@ def update_job(job_id: str, **kwargs):
     if job_id in jobs:
         jobs[job_id].update(kwargs)
         jobs[job_id]["updated_at"] = time.time()
+
+
+def cleanup_old_jobs():
+    """Remove job directories and metadata older than JOB_TTL_HOURS."""
+    if JOB_TTL_HOURS <= 0:
+        return  # Cleanup disabled
+
+    cutoff_time = time.time() - (JOB_TTL_HOURS * 3600)
+    jobs_to_remove = []
+
+    # Find expired jobs in memory
+    for job_id, job_data in list(jobs.items()):
+        created_at = job_data.get("created_at", 0)
+        if created_at < cutoff_time:
+            jobs_to_remove.append(job_id)
+
+    # Remove expired jobs
+    for job_id in jobs_to_remove:
+        job_dir = OUTPUT_DIR / job_id
+        try:
+            if job_dir.exists():
+                shutil.rmtree(job_dir)
+                print(f"Cleanup: Removed job directory {job_id}")
+        except Exception as e:
+            print(f"Cleanup: Failed to remove {job_id}: {e}")
+
+        # Remove from in-memory dict
+        jobs.pop(job_id, None)
+
+    # Also scan OUTPUT_DIR for orphaned directories (not in memory)
+    if OUTPUT_DIR.exists():
+        for item in OUTPUT_DIR.iterdir():
+            if item.is_dir() and item.name not in jobs:
+                # Check directory modification time
+                try:
+                    mtime = item.stat().st_mtime
+                    if mtime < cutoff_time:
+                        shutil.rmtree(item)
+                        print(f"Cleanup: Removed orphaned directory {item.name}")
+                except Exception as e:
+                    print(f"Cleanup: Failed to remove orphaned {item.name}: {e}")
+
+    if jobs_to_remove:
+        print(f"Cleanup: Removed {len(jobs_to_remove)} expired jobs")
 
 
 def parse_timestamp(ts: str) -> float:
@@ -355,6 +425,7 @@ def extract_speaker_samples_ffmpeg(
             "-t", str(extract_duration),
             "-ar", "24000",  # 24kHz sample rate
             "-ac", "1",  # Mono
+            "-acodec", "pcm_s16le",  # 16-bit signed PCM (required by Chatterbox)
             str(sample_path)
         ]
 
@@ -622,21 +693,28 @@ async def synthesize_speech(
 
     # Call Replicate Chatterbox API with voice cloning
     try:
+        model_name = "resemble-ai/chatterbox-multilingual:9cfba4c265e685f840612be835424f8c33bdee685d7466ece7684b0d9d4c0b1c"
+        print(f"Calling Replicate: {model_name.split(':')[0]}, token set: {bool(os.getenv('REPLICATE_API_TOKEN'))}")
         output = replicate.run(
-            "resemble-ai/chatterbox-multilingual",
+            model_name,
             input={
                 "text": text,
-                "language_id": target_lang,
-                "audio_prompt": voice_sample_url,
+                "language": target_lang,
+                "reference_audio": voice_sample_url,
                 "cfg_weight": cfg_weight,
                 "exaggeration": exaggeration,
             }
         )
 
         # Download the output audio
-        if isinstance(output, str):
+        if isinstance(output, FileOutput):
+            # Replicate v1.0+ returns FileOutput objects
+            with open(output_audio, "wb") as f:
+                for chunk in output:
+                    f.write(chunk)
+        elif isinstance(output, str):
             # Output is a URL
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=None) as client:
                 response = await client.get(output)
                 with open(output_audio, "wb") as f:
                     f.write(response.content)
@@ -679,8 +757,10 @@ async def separate_audio(audio_path: Path, job_id: str) -> tuple[Path, Path]:
         data_uri = f"data:{mime_type};base64,{audio_data}"
 
         # Call Replicate demucs API
+        model_name = "cjwbw/demucs:25a173108cff36ef9f80f854c162d01df9e6528be175794b81158fa03836d953"
+        print(f"Calling Replicate: {model_name.split(':')[0]}, token set: {bool(os.getenv('REPLICATE_API_TOKEN'))}")
         output = replicate.run(
-            "cjwbw/demucs",
+            model_name,
             input={
                 "audio": data_uri,
                 "output_format": "wav",
@@ -693,13 +773,17 @@ async def separate_audio(audio_path: Path, job_id: str) -> tuple[Path, Path]:
         vocals_path = job_dir / "vocals.wav"
         background_path = job_dir / "background.wav"
 
-        async with httpx.AsyncClient() as client:
+        # Handle FileOutput objects from Replicate v1.0+
+        vocals_url = output["vocals"].url if isinstance(output["vocals"], FileOutput) else output["vocals"]
+        other_url = output["other"].url if isinstance(output["other"], FileOutput) else output["other"]
+
+        async with httpx.AsyncClient(timeout=None) as client:
             # Download vocals
-            vocals_response = await client.get(output["vocals"])
+            vocals_response = await client.get(vocals_url)
             vocals_path.write_bytes(vocals_response.content)
 
             # Download "other" as background
-            other_response = await client.get(output["other"])
+            other_response = await client.get(other_url)
             background_path.write_bytes(other_response.content)
 
         update_job(job_id, progress=30)
@@ -757,16 +841,32 @@ async def diarize_speakers(
         update_job(job_id, progress=33)
 
         # Call Replicate's speaker-diarization API
+        model_name = "meronym/speaker-diarization:64b78c82f74d78164b49178443c819445f5dca2c51c8ec374783d49382342119"
+        print(f"Calling Replicate: {model_name.split(':')[0]}, token set: {bool(os.getenv('REPLICATE_API_TOKEN'))}")
         output = replicate.run(
-            "meronym/speaker-diarization",
+            model_name,
             input={"audio": vocals_url}
         )
+
+        # Handle different output types from Replicate v1.0+
+        if isinstance(output, FileOutput):
+            import json
+            output_bytes = output.read()
+            output = json.loads(output_bytes)
+        elif isinstance(output, str):
+            # Output is a URL pointing to JSON - fetch and parse
+            import json
+            async with httpx.AsyncClient(timeout=None) as client:
+                response = await client.get(output)
+                output = json.loads(response.text)
 
         update_job(job_id, progress=35)
 
         # Parse output segments and convert speaker labels
-        # Replicate returns: [{"speaker": "A", "start": "0:00:00.497812", "end": "0:00:02.123456"}, ...]
-        if not output:
+        # Model returns: {"segments": [...], "speakers": {...}}
+        segments_list = output.get("segments", []) if isinstance(output, dict) else output
+
+        if not segments_list:
             print(f"Warning: No speakers detected in audio for job {job_id}")
             return [], {}
 
@@ -774,7 +874,7 @@ async def diarize_speakers(
         speaker_label_map: dict[str, str] = {}
         speaker_counter = 0
 
-        for seg in output:
+        for seg in segments_list:
             raw_label = seg.get("speaker", "")
             if raw_label not in speaker_label_map:
                 speaker_label_map[raw_label] = f"SPEAKER_{speaker_counter:02d}"
@@ -783,7 +883,7 @@ async def diarize_speakers(
             diarization_segments.append({
                 "speaker": speaker_label_map[raw_label],
                 "start": parse_timestamp(seg.get("start", "0")),
-                "end": parse_timestamp(seg.get("end", "0"))
+                "end": parse_timestamp(seg.get("stop", seg.get("end", "0")))
             })
 
         update_job(job_id, progress=37)
@@ -970,12 +1070,14 @@ async def synthesize_segments_multi_speaker(
 
         # Call Replicate Chatterbox API for this segment
         try:
+            model_name = "resemble-ai/chatterbox-multilingual:9cfba4c265e685f840612be835424f8c33bdee685d7466ece7684b0d9d4c0b1c"
+            print(f"Calling Replicate: {model_name.split(':')[0]}, token set: {bool(os.getenv('REPLICATE_API_TOKEN'))}")
             output = replicate.run(
-                "resemble-ai/chatterbox-multilingual",
+                model_name,
                 input={
                     "text": text,
-                    "language_id": target_lang,
-                    "audio_prompt": voice_url,
+                    "language": target_lang,
+                    "reference_audio": voice_url,
                     "cfg_weight": cfg_weight,
                     "exaggeration": exaggeration,
                 }
@@ -984,9 +1086,14 @@ async def synthesize_segments_multi_speaker(
             # Download the segment audio
             segment_audio_path = job_dir / f"segment_{i}.wav"
 
-            if isinstance(output, str):
+            if isinstance(output, FileOutput):
+                # Replicate v1.0+ returns FileOutput objects
+                with open(segment_audio_path, "wb") as f:
+                    for chunk in output:
+                        f.write(chunk)
+            elif isinstance(output, str):
                 # Output is a URL
-                async with httpx.AsyncClient() as client:
+                async with httpx.AsyncClient(timeout=None) as client:
                     response = await client.get(output)
                     with open(segment_audio_path, "wb") as f:
                         f.write(response.content)
@@ -996,8 +1103,17 @@ async def synthesize_segments_multi_speaker(
                     for chunk in output:
                         f.write(chunk)
 
-            # Read the audio data using standard library
-            sr, audio_np = read_wav_file(segment_audio_path)
+            # Convert to 16-bit PCM (Chatterbox outputs floating-point WAV which wave module can't read)
+            converted_path = job_dir / f"segment_{i}_converted.wav"
+            subprocess.run([
+                "ffmpeg", "-y",
+                "-i", str(segment_audio_path),
+                "-acodec", "pcm_s16le",
+                str(converted_path)
+            ], capture_output=True, check=True)
+
+            # Read the converted audio data using standard library
+            sr, audio_np = read_wav_file(converted_path)
 
             # Resample if needed
             if sr != target_sample_rate:
@@ -1005,8 +1121,9 @@ async def synthesize_segments_multi_speaker(
 
             segment_audios.append((seg["start"], audio_np))
 
-            # Clean up segment file
+            # Clean up segment files
             segment_audio_path.unlink(missing_ok=True)
+            converted_path.unlink(missing_ok=True)
 
         except Exception as e:
             print(f"Warning: Failed to synthesize segment {i} for job {job_id}: {e}")
@@ -1512,6 +1629,7 @@ async def process_preview(preview_id: str, video_url: str, target_language: str)
             "status": "processing",
             "progress": 0,
             "stage": "initializing",
+            "created_at": time.time(),
         }
 
         # Update status in database
@@ -2669,6 +2787,7 @@ async def process_full_translation(translation_job_id: str, video_url: str, targ
             "status": "processing",
             "progress": 0,
             "stage": "initializing",
+            "created_at": time.time(),
         }
 
         # Update status in database
