@@ -301,6 +301,76 @@ def parse_timestamp(ts: str) -> float:
         return float(ts)
 
 
+def extract_speaker_samples_ffmpeg(
+    audio_path: Path,
+    output_dir: Path,
+    segments: list[dict],
+    target_duration: float = 12.0,
+    min_duration: float = 3.0
+) -> dict[str, Path]:
+    """
+    Extract voice samples for each speaker using ffmpeg.
+
+    Groups segments by speaker ID, finds the longest segment for each speaker,
+    and extracts a voice sample using ffmpeg.
+
+    Args:
+        audio_path: Path to the source audio file
+        output_dir: Directory to save extracted samples
+        segments: List of diarization segments with 'speaker', 'start', 'end' keys
+        target_duration: Maximum duration for each sample (default 12.0 seconds)
+        min_duration: Minimum segment duration required to extract (default 3.0 seconds)
+
+    Returns:
+        Dict mapping speaker ID to the Path of the extracted sample file.
+        Speakers with segments shorter than min_duration are skipped.
+    """
+    # Group segments by speaker
+    speaker_segments: dict[str, list[dict]] = defaultdict(list)
+    for seg in segments:
+        speaker_id = seg.get("speaker", "")
+        if speaker_id:
+            speaker_segments[speaker_id].append(seg)
+
+    result: dict[str, Path] = {}
+
+    for speaker_id, segs in speaker_segments.items():
+        # Find the longest segment for this speaker
+        longest_seg = max(segs, key=lambda s: s["end"] - s["start"])
+        seg_duration = longest_seg["end"] - longest_seg["start"]
+
+        # Skip if segment is too short
+        if seg_duration < min_duration:
+            continue
+
+        # Calculate extraction duration (capped at target_duration)
+        extract_duration = min(seg_duration, target_duration)
+
+        # Output file path
+        sample_path = output_dir / f"{speaker_id}_sample.wav"
+
+        # Extract using ffmpeg
+        cmd = [
+            "ffmpeg",
+            "-y",  # Overwrite output
+            "-i", str(audio_path),
+            "-ss", str(longest_seg["start"]),
+            "-t", str(extract_duration),
+            "-ar", "24000",  # 24kHz sample rate
+            "-ac", "1",  # Mono
+            str(sample_path)
+        ]
+
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+            result[speaker_id] = sample_path
+        except subprocess.CalledProcessError:
+            # Skip this speaker if ffmpeg fails
+            continue
+
+    return result
+
+
 async def download_video(
     url: str,
     job_id: str,
