@@ -1,297 +1,177 @@
 {
-  "project": "audio-quality-improvements",
-  "branchName": "ralph/audio-quality-improvements",
-  "description": "Comprehensive audio processing pipeline: eliminate time-stretching artifacts, add speaker diarization for voice matching, preserve background audio, and embed subtitles.",
+  "project": "codebase-refactoring",
+  "branchName": "ralph/codebase-refactoring",
+  "description": "Systematically refactor the yt-translate codebase to reduce technical debt, eliminate code duplication, and improve maintainability while maintaining backwards compatibility with existing API contracts.",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Create Audio Processing Module",
-      "description": "As a developer, I need a new audio_processing.py module with AudioSeparator and SpeakerDiarizer classes so that both translation scripts can share audio processing logic.",
+      "title": "Create Shared Languages Module",
+      "description": "As a developer, I want language mappings in a single shared module so that I don't have duplicate dictionaries across files.",
       "acceptanceCriteria": [
-        "audio_processing.py file created in project root",
-        "AudioSeparator class with separate() and save_separated() methods",
-        "SpeakerDiarizer class with diarize(), get_speaker_segments(), and extract_speaker_samples() methods",
-        "Both classes handle errors gracefully with fallbacks",
+        "New file `languages.py` created in project root",
+        "Contains `SUPPORTED_LANGUAGES`, `GOOGLE_LANG_CODES`, `ISO_639_1_TO_639_2`, `LANG_NAMES` dictionaries",
+        "`cloud_translate.py` imports from `languages.py` instead of defining locally",
+        "`translate.py` imports from `languages.py` instead of defining locally",
+        "All language-related functionality works identically",
         "Typecheck passes"
       ],
       "priority": 1,
       "passes": true,
-      "notes": "Completed in iteration 1 - audio_processing.py created with AudioSeparator and SpeakerDiarizer classes"
+      "notes": "Completed in iteration 1. Created languages.py with all dictionaries and both files import from it."
     },
     {
       "id": "US-002",
-      "title": "Integrate Demucs for Audio Separation",
-      "description": "As a developer, I need the AudioSeparator class to use Demucs v4 to separate vocals from background audio.",
+      "title": "Add Proper Logging Infrastructure",
+      "description": "As a developer, I want proper logging with configurable levels so that I can debug issues effectively in production.",
       "acceptanceCriteria": [
-        "demucs package added to requirements.txt and requirements-cloud.txt",
-        "AudioSeparator loads htdemucs model on initialization",
-        "separate() returns tuple of (vocals, background, sample_rate)",
-        "save_separated() writes vocals.wav and background.wav to output directory",
-        "Works on both GPU and CPU",
+        "Logger configured at top of `cloud_translate.py`",
+        "All 19 `print()` statements replaced with appropriate `logger.info()`, `logger.warning()`, or `logger.error()` calls",
+        "Log level configurable via `LOG_LEVEL` environment variable",
+        "Logs include job_id context where applicable",
         "Typecheck passes"
       ],
       "priority": 2,
       "passes": true,
-      "notes": "Completed in iteration 2 - Added demucs>=4.0.0 to both requirements files. AudioSeparator already implements htdemucs model loading and separation methods."
+      "notes": "Completed in iteration 2. Replaced 22 print statements (not 19 as originally stated) with logger calls."
     },
     {
       "id": "US-003",
-      "title": "Integrate pyannote.audio for Speaker Diarization",
-      "description": "As a developer, I need the SpeakerDiarizer class to identify different speakers in the audio.",
+      "title": "Extract Configuration Constants",
+      "description": "As a developer, I want all magic numbers in named constants so that configuration is centralized and self-documenting.",
       "acceptanceCriteria": [
-        "pyannote.audio package added to requirements.txt",
-        "SpeakerDiarizer uses pyannote/speaker-diarization-3.1 model",
-        "diarize() returns list of segments with speaker labels and timestamps",
-        "get_speaker_segments() groups segments by speaker ID",
-        "Supports HUGGINGFACE_TOKEN environment variable",
+        "New `config.py` file created with all constants",
+        "Constants include: GOOGLE_TRANSLATE_CHUNK_SIZE, LLM_MAX_SEGMENTS_PER_BATCH, LLM_BATCH_OVERLAP, LLM_MAX_TOKENS, LLM_TEMPERATURE, CHATTERBOX_SAMPLE_RATE, VOICE_SAMPLE_DURATION_SECONDS, MIN_VOICE_SAMPLE_DURATION, MAX_VOICE_SAMPLE_DURATION, SIGNED_URL_EXPIRATION",
+        "All hardcoded Replicate model names moved to config",
+        "`cloud_translate.py` imports and uses constants from `config.py`",
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": "Completed in iteration 3 - Added pyannote.audio>=3.1.0 to requirements.txt. SpeakerDiarizer class (from US-001) already implements all pyannote functionality."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-004",
-      "title": "Extract Per-Speaker Voice Samples",
-      "description": "As a developer, I need to extract clean voice samples for each identified speaker to use for voice cloning.",
+      "title": "Extract Access Control Helper",
+      "description": "As a developer, I want access control logic in a reusable function so that I don't have duplicate permission checks.",
       "acceptanceCriteria": [
-        "extract_speaker_samples() finds longest segment per speaker",
-        "Extracts 10-15 seconds of audio per speaker",
-        "Output is 24kHz mono WAV (Chatterbox requirement)",
-        "Returns dict mapping speaker ID to sample file path",
-        "Handles case where speaker has <10s of audio (fallback to shorter sample)",
+        "New function `verify_preview_access(preview_job, session_id, user_id)` created",
+        "Function raises `HTTPException(403)` if access denied",
+        "Both `get_preview_status` and `get_preview_video` endpoints use this helper",
+        "Original behavior preserved exactly",
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "Completed in iteration 4 - extract_speaker_samples() already implemented in US-001 with all required functionality."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-005",
-      "title": "Remove Time-Stretching from translate.py",
-      "description": "As a developer, I need to remove the librosa time-stretching code that causes echo/reverb artifacts.",
+      "title": "Extract Audio Helper Functions",
+      "description": "As a developer, I want audio utility functions in a separate module so that they are testable and reusable.",
       "acceptanceCriteria": [
-        "Remove librosa.effects.time_stretch() calls from synthesize_segments()",
-        "TTS audio plays at natural 1x speed",
-        "Segment start times adjusted to prevent overlap",
-        "Clips don't cut off words (next clip waits for current to finish)",
+        "New file `utils/audio_helpers.py` created",
+        "Contains `read_wav_file(path) -> tuple[int, np.ndarray]`",
+        "Contains `write_wav_file(path, sample_rate, audio_data)`",
+        "Contains `resample_audio(audio, orig_sr, target_sr) -> np.ndarray`",
+        "Functions extracted from `synthesize_segments_multi_speaker`",
+        "`synthesize_segments_multi_speaker` imports and uses these functions",
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "Completed in iteration 5 - Removed librosa time-stretching, segments now play at natural speed with adjusted timing to prevent overlap"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-006",
-      "title": "Implement Multi-Speaker Synthesis in translate.py",
-      "description": "As a developer, I need synthesize_segments to use the correct voice sample for each speaker's segments.",
+      "title": "Consolidate Storage Upload Functions",
+      "description": "As a developer, I want a single generic upload function so that storage logic isn't duplicated.",
       "acceptanceCriteria": [
-        "New function synthesize_segments_multi_speaker() created",
-        "Maps each text segment to its speaker via diarization timestamps",
-        "Uses speaker-specific voice sample for Chatterbox generation",
-        "Falls back to first available sample if speaker matching fails",
+        "New function `upload_to_storage(bucket, job_id, file_path, filename, content_type) -> str` in db.py",
+        "`upload_preview_to_storage`, `upload_translation_to_storage`, `upload_voice_sample` refactored to use generic function",
+        "Original function signatures preserved as wrappers for backwards compatibility",
+        "All uploads work identically",
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": "Completed in iteration 6 - synthesize_segments_multi_speaker() function with overlap-based speaker matching"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-007",
-      "title": "Add Background Audio Mixing",
-      "description": "As a developer, I need to mix the translated speech with the original background audio.",
+      "title": "Consolidate Signed URL Functions",
+      "description": "As a developer, I want a single generic signed URL function so that URL generation logic isn't duplicated.",
       "acceptanceCriteria": [
-        "New function mix_audio_with_background() created",
-        "Uses ffmpeg to mix speech (100% volume) with background (30% volume)",
-        "Output matches duration of speech track",
-        "Configurable background volume via parameter",
+        "New function `get_signed_url(bucket, storage_path, expires_in=3600) -> str` in db.py",
+        "`get_preview_signed_url`, `get_translation_signed_url`, `get_voice_sample_signed_url` refactored to use generic function",
+        "Original function signatures preserved as wrappers for backwards compatibility",
+        "All signed URL generation works identically",
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": true,
-      "notes": "Completed in iteration 7 - mix_audio_with_background() function with ffmpeg audio mixing"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-008",
-      "title": "Add Subtitle Generation",
-      "description": "As a developer, I need to generate SRT subtitles from translated segments.",
+      "title": "Create Unified Pipeline Function",
+      "description": "As a developer, I want a single parameterized pipeline function so that the 3 duplicate processing functions are consolidated.",
       "acceptanceCriteria": [
-        "New function generate_srt() created",
-        "Converts segment timestamps to SRT format (HH:MM:SS,mmm)",
-        "Writes translated text for each segment",
-        "Handles Unicode characters correctly",
+        "New function `process_video_translation(job_id, video_url, target_language, duration_limit, job_type)` created",
+        "`job_type` parameter accepts: 'preview', 'paid', 'legacy'",
+        "Function uses appropriate DB update callback based on job_type",
+        "`process_translation`, `process_preview`, `process_full_translation` refactored to call unified function",
+        "Original function signatures preserved for backwards compatibility",
+        "All three job types process identically to before",
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": true,
-      "notes": "Completed in iteration 8 - generate_srt() function with SRT format timestamps and UTF-8 Unicode support"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-009",
-      "title": "Embed Subtitles in Final Video",
-      "description": "As a developer, I need to embed the generated subtitles as toggleable closed captions in the output video.",
+      "title": "Add Unit Tests for Audio Helpers",
+      "description": "As a developer, I want unit tests for audio helper functions so that refactoring doesn't break functionality.",
       "acceptanceCriteria": [
-        "Update merge_audio_video() to accept subtitle_path parameter",
-        "Subtitles embedded as soft subs (toggleable, not burned in)",
-        "Uses mov_text codec for MP4 compatibility",
-        "Subtitle language metadata set correctly",
+        "Test file `tests/test_audio_helpers.py` created",
+        "Tests for `read_wav_file` with valid WAV file",
+        "Tests for `write_wav_file` creates valid WAV file",
+        "Tests for `resample_audio` produces correct sample rate",
+        "All tests pass",
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": true,
-      "notes": "Completed in iteration 9 - merge_audio_video() updated with subtitle embedding via mov_text codec"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-010",
-      "title": "Update translate.py Main Pipeline",
-      "description": "As a developer, I need to integrate all audio processing components into the main translation pipeline.",
+      "title": "Add Unit Tests for Language Module",
+      "description": "As a developer, I want tests verifying language mappings are complete and consistent.",
       "acceptanceCriteria": [
-        "Pipeline separates audio before transcription",
-        "Transcription uses isolated vocals (cleaner input)",
-        "Speaker diarization runs on vocals",
-        "Multi-speaker synthesis uses per-speaker voice samples",
-        "Background audio mixed with translated speech",
-        "Subtitles generated and embedded",
+        "Test file `tests/test_languages.py` created",
+        "Test that all `SUPPORTED_LANGUAGES` keys exist in `GOOGLE_LANG_CODES`",
+        "Test that all language codes are valid ISO 639-1 codes",
+        "All tests pass",
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": true,
-      "notes": "Completed in iteration 10 - Full pipeline integration with 8 stages: download, separate, diarize, transcribe, translate, synthesize, mix, merge"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-011",
-      "title": "Fix cloud_translate.py Whisper Timestamps",
-      "description": "As a developer, I need cloud_translate.py to get segment timestamps from OpenAI Whisper API.",
+      "title": "Add Integration Test for Pipeline",
+      "description": "As a developer, I want an integration test ensuring the unified pipeline works correctly.",
       "acceptanceCriteria": [
-        "Change response_format from text to verbose_json",
-        "Add timestamp_granularities=[segment] parameter",
-        "Parse response to extract segment start/end times",
-        "Return segments in same format as local transcribe_audio()",
+        "Test file `tests/test_pipeline.py` created",
+        "Test that `process_video_translation` with job_type='preview' matches old behavior",
+        "Test that `process_video_translation` with job_type='paid' matches old behavior",
+        "Mock external APIs (Replicate, OpenAI) in tests",
+        "All tests pass",
         "Typecheck passes"
       ],
       "priority": 11,
-      "passes": true,
-      "notes": "Completed in iteration 11 - Updated transcribe_audio() to return segments, added translate_segments()"
-    },
-    {
-      "id": "US-012",
-      "title": "Fix cloud_translate.py Voice Cloning",
-      "description": "As a developer, I need cloud_translate.py to pass voice samples to the Replicate Chatterbox API.",
-      "acceptanceCriteria": [
-        "Upload voice sample to Supabase Storage",
-        "Get signed URL for voice sample",
-        "Pass audio_prompt parameter to Replicate API",
-        "Add cfg_weight and exaggeration parameters",
-        "Typecheck passes"
-      ],
-      "priority": 12,
-      "passes": true,
-      "notes": "Completed in iteration 12 - Added db.upload_voice_sample() and db.get_voice_sample_signed_url(), updated synthesize_speech() with audio_prompt, cfg_weight, exaggeration params"
-    },
-    {
-      "id": "US-013",
-      "title": "Add Audio Separation to cloud_translate.py",
-      "description": "As a developer, I need cloud_translate.py to separate vocals from background.",
-      "acceptanceCriteria": [
-        "Import and use AudioSeparator class",
-        "Separate audio after download",
-        "Store vocals.wav and background.wav in job directory",
-        "Use vocals for transcription",
-        "Typecheck passes"
-      ],
-      "priority": 13,
-      "passes": true,
-      "notes": "Completed in iteration 13 - Added separate_audio() function, updated all three pipeline functions"
-    },
-    {
-      "id": "US-014",
-      "title": "Add Speaker Diarization to cloud_translate.py",
-      "description": "As a developer, I need cloud_translate.py to identify speakers for voice matching.",
-      "acceptanceCriteria": [
-        "Import and use SpeakerDiarizer class",
-        "Run diarization on vocals audio",
-        "Extract per-speaker voice samples",
-        "Upload voice samples to Supabase Storage for Replicate API",
-        "Typecheck passes"
-      ],
-      "priority": 14,
-      "passes": true,
-      "notes": "Completed in iteration 14 - Added diarize_speakers() function, updated all three pipeline functions"
-    },
-    {
-      "id": "US-015",
-      "title": "Add Multi-Speaker Synthesis to cloud_translate.py",
-      "description": "As a developer, I need cloud_translate.py to synthesize with speaker-matched voices.",
-      "acceptanceCriteria": [
-        "Match each segment to speaker via diarization",
-        "Use correct voice sample URL for each segment",
-        "Call Replicate API with per-segment voice",
-        "Combine segments without time-stretching",
-        "Typecheck passes"
-      ],
-      "priority": 15,
-      "passes": true,
-      "notes": "Completed in iteration 15 - Added synthesize_segments_multi_speaker() with overlap-based speaker matching and per-segment Replicate API calls"
-    },
-    {
-      "id": "US-016",
-      "title": "Add Background Mixing and Subtitles to cloud_translate.py",
-      "description": "As a developer, I need cloud_translate.py to mix background audio and embed subtitles.",
-      "acceptanceCriteria": [
-        "Mix translated speech with original background",
-        "Generate SRT subtitles from translated segments",
-        "Embed subtitles in final video",
-        "Update job status and output path",
-        "Typecheck passes"
-      ],
-      "priority": 16,
-      "passes": true,
-      "notes": "Completed in iteration 16 - Added mix_audio_with_background(), generate_srt(), updated merge_audio_video() with subtitle support, updated all three pipeline functions"
-    },
-    {
-      "id": "US-017",
-      "title": "Update Requirements Files",
-      "description": "As a developer, I need to add new dependencies to requirements files.",
-      "acceptanceCriteria": [
-        "Add demucs>=4.0.0 to requirements.txt",
-        "Add pyannote.audio>=3.1.0 to requirements.txt",
-        "Add demucs>=4.0.0 to requirements-cloud.txt",
-        "Document HUGGINGFACE_TOKEN in SETUP.md",
-        "Typecheck passes"
-      ],
-      "priority": 17,
-      "passes": true,
-      "notes": "Completed in iteration 17 - Dependencies already present in requirements files (added in earlier iterations). Documented HUGGINGFACE_TOKEN in SETUP.md with environment variable section, .env example, setup checklist, and troubleshooting guide."
-    },
-    {
-      "id": "US-018",
-      "title": "End-to-End Testing - Local",
-      "description": "As a developer, I need to verify the complete local translation pipeline works correctly.",
-      "acceptanceCriteria": [
-        "Translate a video with male and female speakers",
-        "Verify different voices used for different speakers",
-        "Verify background music is preserved at lower volume",
-        "Verify subtitles can be toggled on/off in VLC",
-        "Verify no echo/reverb artifacts in output audio",
-        "Typecheck passes"
-      ],
-      "priority": 18,
-      "passes": false,
-      "notes": "BLOCKER: Pyannote model license not accepted. HUGGINGFACE_TOKEN is set, but user must accept the gated model license. Visit https://huggingface.co/pyannote/speaker-diarization-3.1 and https://huggingface.co/pyannote/speaker-diarization-community-1 to accept licenses. Fixed demucs/pyannote API compatibility bugs in iteration 21."
-    },
-    {
-      "id": "US-019",
-      "title": "End-to-End Testing - Cloud",
-      "description": "As a developer, I need to verify the complete cloud translation pipeline works correctly.",
-      "acceptanceCriteria": [
-        "Run cloud_translate.py with test video",
-        "Verify speaker voice matching works",
-        "Verify background audio preserved",
-        "Verify subtitles embedded correctly",
-        "Verify in browser using MCP Toolkit browser tools",
-        "Typecheck passes"
-      ],
-      "priority": 19,
       "passes": false,
       "notes": ""
     }
