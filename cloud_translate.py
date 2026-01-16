@@ -623,6 +623,239 @@ async def diarize_speakers(
         return [], {}
 
 
+async def synthesize_segments_multi_speaker(
+    translated_segments: list[dict],
+    diarization_segments: list[dict],
+    speaker_voice_urls: dict[str, str],
+    target_lang: str,
+    job_id: str,
+    cfg_weight: float = 0.5,
+    exaggeration: float = 0.5
+) -> Path:
+    """
+    Synthesize speech for each segment using speaker-matched voices.
+
+    Maps each transcription segment to its speaker via diarization timestamps,
+    then uses the appropriate voice sample URL for Replicate Chatterbox generation.
+
+    Audio plays at natural 1x speed. Segment start times are adjusted to prevent
+    overlap - if a segment hasn't finished, the next one waits for it to complete.
+
+    Args:
+        translated_segments: Translated text segments with start/end times and translated_text
+        diarization_segments: Speaker diarization results with speaker labels and timestamps
+        speaker_voice_urls: Dict mapping speaker ID to signed URL for voice sample
+        target_lang: Target language code for Chatterbox (e.g., "es", "ja")
+        job_id: Job ID for tracking and storage
+        cfg_weight: CFG/Pace weight (0.0-1.0, higher = slower/more stable)
+        exaggeration: Voice exaggeration (0.0-1.0, higher = more expressive)
+
+    Returns:
+        Path to the generated combined audio file
+    """
+    import wave
+    import struct
+    import numpy as np
+
+    update_job(job_id, stage="synthesize", progress=60)
+
+    job_dir = OUTPUT_DIR / job_id
+    output_audio_path = job_dir / "translated_audio.wav"
+
+    # Get fallback voice URL (first available)
+    if not speaker_voice_urls:
+        raise RuntimeError("No speaker voice URLs available for synthesis")
+
+    fallback_speaker = next(iter(speaker_voice_urls))
+    fallback_voice_url = speaker_voice_urls[fallback_speaker]
+
+    def match_segment_to_speaker(seg_start: float, seg_end: float) -> str:
+        """Find the speaker with maximum overlap for a given segment time range."""
+        best_speaker = fallback_speaker
+        best_overlap = 0.0
+
+        for diar_seg in diarization_segments:
+            # Calculate overlap between transcription segment and diarization segment
+            overlap_start = max(seg_start, diar_seg["start"])
+            overlap_end = min(seg_end, diar_seg["end"])
+            overlap = max(0.0, overlap_end - overlap_start)
+
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_speaker = diar_seg["speaker"]
+
+        return best_speaker
+
+    def read_wav_file(wav_path: Path) -> tuple[int, np.ndarray]:
+        """Read a WAV file and return sample rate and float32 audio data."""
+        with wave.open(str(wav_path), 'rb') as wf:
+            sample_rate = wf.getframerate()
+            n_channels = wf.getnchannels()
+            sample_width = wf.getsampwidth()
+            n_frames = wf.getnframes()
+
+            raw_data = wf.readframes(n_frames)
+
+            # Parse based on sample width
+            if sample_width == 2:  # 16-bit
+                fmt = f'<{n_frames * n_channels}h'
+                samples = struct.unpack(fmt, raw_data)
+                audio_np = np.array(samples, dtype=np.float32) / 32767.0
+            elif sample_width == 4:  # 32-bit
+                fmt = f'<{n_frames * n_channels}i'
+                samples = struct.unpack(fmt, raw_data)
+                audio_np = np.array(samples, dtype=np.float32) / 2147483647.0
+            else:
+                # Default to 16-bit assumption
+                fmt = f'<{len(raw_data) // 2}h'
+                samples = struct.unpack(fmt, raw_data)
+                audio_np = np.array(samples, dtype=np.float32) / 32767.0
+
+            # Handle stereo -> mono
+            if n_channels > 1:
+                audio_np = audio_np.reshape(-1, n_channels).mean(axis=1)
+
+            return sample_rate, audio_np
+
+    def write_wav_file(wav_path: Path, sample_rate: int, audio: np.ndarray) -> None:
+        """Write float32 audio data to a WAV file as 16-bit."""
+        # Convert to 16-bit integer
+        audio_int16 = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
+
+        with wave.open(str(wav_path), 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes(audio_int16.tobytes())
+
+    def resample_audio(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
+        """Simple linear interpolation resampling."""
+        if orig_sr == target_sr:
+            return audio
+        ratio = target_sr / orig_sr
+        new_length = int(len(audio) * ratio)
+        indices = np.linspace(0, len(audio) - 1, new_length)
+        return np.interp(indices, np.arange(len(audio)), audio)
+
+    # Process each segment and collect audio with original start times
+    total_segments = len(translated_segments)
+    segment_audios: list[tuple[float, np.ndarray]] = []  # (original_start, audio)
+
+    # Target sample rate (Chatterbox typically outputs 24kHz)
+    target_sample_rate = 24000
+
+    for i, seg in enumerate(translated_segments):
+        text = seg.get("translated_text", "")
+
+        if not text:
+            # Skip empty segments
+            continue
+
+        # Match this segment to a speaker
+        speaker = match_segment_to_speaker(seg["start"], seg["end"])
+
+        # Get voice URL for this speaker (with fallback)
+        voice_url = speaker_voice_urls.get(speaker, fallback_voice_url)
+
+        # Update progress (60-85% range for synthesis)
+        progress = 60 + int(25 * i / max(1, total_segments))
+        update_job(job_id, progress=progress)
+
+        # Call Replicate Chatterbox API for this segment
+        try:
+            output = replicate.run(
+                "resemble-ai/chatterbox-multilingual",
+                input={
+                    "text": text,
+                    "language_id": target_lang,
+                    "audio_prompt": voice_url,
+                    "cfg_weight": cfg_weight,
+                    "exaggeration": exaggeration,
+                }
+            )
+
+            # Download the segment audio
+            segment_audio_path = job_dir / f"segment_{i}.wav"
+
+            if isinstance(output, str):
+                # Output is a URL
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(output)
+                    with open(segment_audio_path, "wb") as f:
+                        f.write(response.content)
+            else:
+                # Output might be file-like or iterator
+                with open(segment_audio_path, "wb") as f:
+                    for chunk in output:
+                        f.write(chunk)
+
+            # Read the audio data using standard library
+            sr, audio_np = read_wav_file(segment_audio_path)
+
+            # Resample if needed
+            if sr != target_sample_rate:
+                audio_np = resample_audio(audio_np, sr, target_sample_rate)
+
+            segment_audios.append((seg["start"], audio_np))
+
+            # Clean up segment file
+            segment_audio_path.unlink(missing_ok=True)
+
+        except Exception as e:
+            print(f"Warning: Failed to synthesize segment {i} for job {job_id}: {e}")
+            continue
+
+    if not segment_audios:
+        raise RuntimeError("No segments were successfully synthesized")
+
+    # Combine all segments with adjusted timing to prevent overlap
+    # Each segment starts at max(original_start, previous_segment_end)
+    positioned_audios: list[tuple[float, np.ndarray]] = []
+    current_end_time = 0.0
+
+    for original_start, audio in segment_audios:
+        audio_duration = len(audio) / target_sample_rate
+
+        # Start at the later of: original timestamp or when previous segment ends
+        actual_start = max(original_start, current_end_time)
+        positioned_audios.append((actual_start, audio))
+
+        # Update end time for next segment
+        current_end_time = actual_start + audio_duration
+
+    # Calculate actual output length
+    total_duration = max(
+        translated_segments[-1].get("end", 0.0) if translated_segments else 0.0,
+        current_end_time
+    )
+    output_length = int(total_duration * target_sample_rate)
+    output_audio = np.zeros(output_length)
+
+    # Place audio at calculated positions
+    for start_time, audio in positioned_audios:
+        start_sample = int(start_time * target_sample_rate)
+        end_sample = start_sample + len(audio)
+
+        # Ensure we don't overflow
+        if end_sample > output_length:
+            audio = audio[:output_length - start_sample]
+
+        # Place audio
+        if start_sample < output_length:
+            output_audio[start_sample:start_sample + len(audio)] = audio
+
+    # Normalize to prevent clipping
+    max_val = np.max(np.abs(output_audio))
+    if max_val > 0.99:
+        output_audio = output_audio * 0.99 / max_val
+
+    # Save the combined audio
+    write_wav_file(output_audio_path, target_sample_rate, output_audio)
+
+    update_job(job_id, progress=85)
+    return output_audio_path
+
+
 async def merge_audio_video(video_path: Path, audio_path: Path, job_id: str, title: str) -> Path:
     """Merge translated audio with original video."""
     update_job(job_id, stage="merge", progress=90)
@@ -667,13 +900,22 @@ async def process_translation(job_id: str, video_url: str, target_language: str)
         # 5. Translate segments (preserves timestamps)
         translated_segments = await translate_segments(segments, target_language, job_id)
 
-        # 6. Synthesize (TTS) - for now, combine all translated text
-        # Future: US-015 will implement per-segment multi-speaker synthesis
-        # Note: diarization_segments and speaker_voice_urls are available for US-015
-        translated_text = " ".join(
-            seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
-        )
-        new_audio = await synthesize_speech(translated_text, vocals_path, target_language, job_id)
+        # 6. Synthesize (TTS) - use multi-speaker if diarization available, else single speaker
+        if speaker_voice_urls and diarization_segments:
+            # Multi-speaker synthesis using per-segment voice matching
+            new_audio = await synthesize_segments_multi_speaker(
+                translated_segments=translated_segments,
+                diarization_segments=diarization_segments,
+                speaker_voice_urls=speaker_voice_urls,
+                target_lang=target_language,
+                job_id=job_id
+            )
+        else:
+            # Fallback: single speaker synthesis (combine all text)
+            translated_text = " ".join(
+                seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
+            )
+            new_audio = await synthesize_speech(translated_text, vocals_path, target_language, job_id)
 
         # 7. Merge
         output = await merge_audio_video(video_path, new_audio, job_id, info["title"])
@@ -909,14 +1151,23 @@ async def process_preview(preview_id: str, video_url: str, target_language: str)
         translated_segments = await translate_segments(segments, target_language, preview_id)
         db.update_preview_job(preview_id, progress=55)
 
-        # 6. Synthesize speech (TTS with voice cloning)
-        # For now, combine all translated text - US-015 will add per-segment synthesis
-        # Note: diarization_segments and speaker_voice_urls are available for US-015
-        translated_text = " ".join(
-            seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
-        )
+        # 6. Synthesize speech (TTS) - use multi-speaker if diarization available
         db.update_preview_job(preview_id, stage="synthesize", progress=60)
-        new_audio = await synthesize_speech(translated_text, vocals_path, target_language, preview_id)
+        if speaker_voice_urls and diarization_segments:
+            # Multi-speaker synthesis using per-segment voice matching
+            new_audio = await synthesize_segments_multi_speaker(
+                translated_segments=translated_segments,
+                diarization_segments=diarization_segments,
+                speaker_voice_urls=speaker_voice_urls,
+                target_lang=target_language,
+                job_id=preview_id
+            )
+        else:
+            # Fallback: single speaker synthesis (combine all text)
+            translated_text = " ".join(
+                seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
+            )
+            new_audio = await synthesize_speech(translated_text, vocals_path, target_language, preview_id)
         db.update_preview_job(preview_id, progress=85)
 
         # 7. Merge translated audio with video
@@ -2037,14 +2288,23 @@ async def process_full_translation(translation_job_id: str, video_url: str, targ
         translated_segments = await translate_segments(segments, target_language, translation_job_id)
         db.update_translation_job(translation_job_id, progress=55)
 
-        # 6. Synthesize speech (TTS with voice cloning)
-        # For now, combine all translated text - US-015 will add per-segment synthesis
-        # Note: diarization_segments and speaker_voice_urls are available for US-015
-        translated_text = " ".join(
-            seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
-        )
+        # 6. Synthesize speech (TTS) - use multi-speaker if diarization available
         db.update_translation_job(translation_job_id, stage="synthesize", progress=60)
-        new_audio = await synthesize_speech(translated_text, vocals_path, target_language, translation_job_id)
+        if speaker_voice_urls and diarization_segments:
+            # Multi-speaker synthesis using per-segment voice matching
+            new_audio = await synthesize_segments_multi_speaker(
+                translated_segments=translated_segments,
+                diarization_segments=diarization_segments,
+                speaker_voice_urls=speaker_voice_urls,
+                target_lang=target_language,
+                job_id=translation_job_id
+            )
+        else:
+            # Fallback: single speaker synthesis (combine all text)
+            translated_text = " ".join(
+                seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
+            )
+            new_audio = await synthesize_speech(translated_text, vocals_path, target_language, translation_job_id)
         db.update_translation_job(translation_job_id, progress=85)
 
         # 7. Merge translated audio with video
