@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 import asyncio
 import base64
+import logging
 import os
 import re
 import shutil
@@ -27,6 +28,14 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 from contextlib import asynccontextmanager
+
+# Configure logging
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 import httpx
 import replicate
@@ -192,14 +201,14 @@ class TranslationJobStatusResponse(BaseModel):
 async def lifespan(app: FastAPI):
     # Startup
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Output directory: {OUTPUT_DIR}")
-    print(f"Job TTL: {JOB_TTL_HOURS} hours, Cleanup interval: {CLEANUP_INTERVAL_MINUTES} minutes")
+    logger.info("Output directory: %s", OUTPUT_DIR)
+    logger.info("Job TTL: %d hours, Cleanup interval: %d minutes", JOB_TTL_HOURS, CLEANUP_INTERVAL_MINUTES)
 
     # Check API keys
     if not OPENAI_API_KEY:
-        print("WARNING: OPENAI_API_KEY not set")
+        logger.warning("OPENAI_API_KEY not set")
     if not REPLICATE_API_TOKEN:
-        print("WARNING: REPLICATE_API_TOKEN not set")
+        logger.warning("REPLICATE_API_TOKEN not set")
 
     # Start background cleanup task
     cleanup_task = None
@@ -210,7 +219,7 @@ async def lifespan(app: FastAPI):
                 try:
                     cleanup_old_jobs()
                 except Exception as e:
-                    print(f"Cleanup task error: {e}")
+                    logger.error("Cleanup task error: %s", e)
 
         cleanup_task = asyncio.create_task(periodic_cleanup())
 
@@ -276,9 +285,9 @@ def cleanup_old_jobs():
         try:
             if job_dir.exists():
                 shutil.rmtree(job_dir)
-                print(f"Cleanup: Removed job directory {job_id}")
+                logger.info("[job_id=%s] Cleanup: Removed job directory", job_id)
         except Exception as e:
-            print(f"Cleanup: Failed to remove {job_id}: {e}")
+            logger.error("[job_id=%s] Cleanup: Failed to remove: %s", job_id, e)
 
         # Remove from in-memory dict
         jobs.pop(job_id, None)
@@ -292,12 +301,12 @@ def cleanup_old_jobs():
                     mtime = item.stat().st_mtime
                     if mtime < cutoff_time:
                         shutil.rmtree(item)
-                        print(f"Cleanup: Removed orphaned directory {item.name}")
+                        logger.info("Cleanup: Removed orphaned directory %s", item.name)
                 except Exception as e:
-                    print(f"Cleanup: Failed to remove orphaned {item.name}: {e}")
+                    logger.error("Cleanup: Failed to remove orphaned %s: %s", item.name, e)
 
     if jobs_to_remove:
-        print(f"Cleanup: Removed {len(jobs_to_remove)} expired jobs")
+        logger.info("Cleanup: Removed %d expired jobs", len(jobs_to_remove))
 
 
 def parse_timestamp(ts: str) -> float:
@@ -649,7 +658,7 @@ async def translate_segments_llm(segments: list[dict], target_lang: str, job_id:
         all_translations = batch_translations
     else:
         # Multiple batches with overlap for context continuity
-        print(f"Job {job_id}: Translating {len(transcript_lines)} segments in batches")
+        logger.info("[job_id=%s] Translating %d segments in batches", job_id, len(transcript_lines))
         overlap = 5  # Segments of overlap between batches
         batch_num = 0
         for batch_start in range(0, len(transcript_lines), MAX_SEGMENTS_PER_BATCH - overlap):
@@ -731,7 +740,7 @@ Translate each line to {target_lang_name}, keeping the same numbered format:"""
         else:
             response_text = str(output)
 
-        print(f"Job {job_id}: LLM translation response length: {len(response_text)}")
+        logger.debug("[job_id=%s] LLM translation response length: %d", job_id, len(response_text))
 
         # Parse the numbered response back into translations
         translations = {}
@@ -749,11 +758,11 @@ Translate each line to {target_lang_name}, keeping the same numbered format:"""
             except ValueError:
                 continue
 
-        print(f"Job {job_id}: LLM translated {len(translations)}/{len(transcript_lines)} segments")
+        logger.info("[job_id=%s] LLM translated %d/%d segments", job_id, len(translations), len(transcript_lines))
         return translations
 
     except Exception as e:
-        print(f"Job {job_id}: LLM translation failed: {e}, falling back to Google Translate")
+        logger.warning("[job_id=%s] LLM translation failed: %s, falling back to Google Translate", job_id, e)
         # Fallback: parse indices from transcript_lines and translate with Google
         translations = {}
         for line in transcript_lines:
@@ -828,7 +837,7 @@ async def synthesize_speech(
     # Call Replicate Chatterbox API with voice cloning
     try:
         model_name = "resemble-ai/chatterbox-multilingual:9cfba4c265e685f840612be835424f8c33bdee685d7466ece7684b0d9d4c0b1c"
-        print(f"Calling Replicate: {model_name.split(':')[0]}, token set: {bool(os.getenv('REPLICATE_API_TOKEN'))}")
+        logger.info("[job_id=%s] Calling Replicate: %s, token set: %s", job_id, model_name.split(':')[0], bool(os.getenv('REPLICATE_API_TOKEN')))
         output = replicate.run(
             model_name,
             input={
@@ -892,7 +901,7 @@ async def separate_audio(audio_path: Path, job_id: str) -> tuple[Path, Path]:
 
         # Call Replicate demucs API
         model_name = "cjwbw/demucs:25a173108cff36ef9f80f854c162d01df9e6528be175794b81158fa03836d953"
-        print(f"Calling Replicate: {model_name.split(':')[0]}, token set: {bool(os.getenv('REPLICATE_API_TOKEN'))}")
+        logger.info("[job_id=%s] Calling Replicate: %s, token set: %s", job_id, model_name.split(':')[0], bool(os.getenv('REPLICATE_API_TOKEN')))
         output = replicate.run(
             model_name,
             input={
@@ -926,7 +935,7 @@ async def separate_audio(audio_path: Path, job_id: str) -> tuple[Path, Path]:
 
     except Exception as e:
         # Fallback: if separation fails, use original audio as vocals and create empty background
-        print(f"Warning: Audio separation failed, using original audio: {e}")
+        logger.warning("[job_id=%s] Audio separation failed, using original audio: %s", job_id, e)
         return audio_path, audio_path
 
 
@@ -976,7 +985,7 @@ async def diarize_speakers(
 
         # Call Replicate's speaker-diarization API
         model_name = "meronym/speaker-diarization:64b78c82f74d78164b49178443c819445f5dca2c51c8ec374783d49382342119"
-        print(f"Calling Replicate: {model_name.split(':')[0]}, token set: {bool(os.getenv('REPLICATE_API_TOKEN'))}")
+        logger.info("[job_id=%s] Calling Replicate: %s, token set: %s", job_id, model_name.split(':')[0], bool(os.getenv('REPLICATE_API_TOKEN')))
         output = replicate.run(
             model_name,
             input={"audio": vocals_url}
@@ -1001,7 +1010,7 @@ async def diarize_speakers(
         segments_list = output.get("segments", []) if isinstance(output, dict) else output
 
         if not segments_list:
-            print(f"Warning: No speakers detected in audio for job {job_id}")
+            logger.warning("[job_id=%s] No speakers detected in audio", job_id)
             return [], {}
 
         # Convert speaker labels from "A", "B" to "SPEAKER_00", "SPEAKER_01" format
@@ -1050,7 +1059,7 @@ async def diarize_speakers(
                 speaker_voice_urls[speaker_id] = signed_url
 
             except Exception as e:
-                print(f"Warning: Failed to upload voice sample for {speaker_id}: {e}")
+                logger.warning("[job_id=%s] Failed to upload voice sample for %s: %s", job_id, speaker_id, e)
                 continue
 
         update_job(job_id, progress=40)
@@ -1060,7 +1069,7 @@ async def diarize_speakers(
     except Exception as e:
         # Fallback: if diarization fails, return empty results
         # The pipeline will continue with single-speaker synthesis
-        print(f"Warning: Speaker diarization failed for job {job_id}: {e}")
+        logger.warning("[job_id=%s] Speaker diarization failed: %s", job_id, e)
         return [], {}
 
 
@@ -1205,7 +1214,7 @@ async def synthesize_segments_multi_speaker(
         # Call Replicate Chatterbox API for this segment
         try:
             model_name = "resemble-ai/chatterbox-multilingual:9cfba4c265e685f840612be835424f8c33bdee685d7466ece7684b0d9d4c0b1c"
-            print(f"Calling Replicate: {model_name.split(':')[0]}, token set: {bool(os.getenv('REPLICATE_API_TOKEN'))}")
+            logger.debug("[job_id=%s] Calling Replicate: %s for segment %d", job_id, model_name.split(':')[0], i)
             output = replicate.run(
                 model_name,
                 input={
@@ -1260,7 +1269,7 @@ async def synthesize_segments_multi_speaker(
             converted_path.unlink(missing_ok=True)
 
         except Exception as e:
-            print(f"Warning: Failed to synthesize segment {i} for job {job_id}: {e}")
+            logger.warning("[job_id=%s] Failed to synthesize segment %d: %s", job_id, i, e)
             continue
 
     if not segment_audios:
@@ -2331,7 +2340,7 @@ async def signup(request: SignupRequest):
         except Exception as profile_error:
             # If profile creation fails, the user was still created in Auth
             # Log this but don't fail the signup
-            print(f"Warning: Failed to create profile for user {user_id}: {profile_error}")
+            logger.warning("Failed to create profile for user %s: %s", user_id, profile_error)
 
         # Return session tokens
         return AuthResponse(
@@ -2467,7 +2476,7 @@ async def oauth_callback(code: Optional[str] = None, error: Optional[str] = None
                 )
             except Exception as profile_error:
                 # Log but don't fail - user can still continue
-                print(f"Warning: Failed to create profile for OAuth user {user_id}: {profile_error}")
+                logger.warning("Failed to create profile for OAuth user %s: %s", user_id, profile_error)
 
         return AuthResponse(
             user_id=user_id,
