@@ -32,87 +32,11 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
-
-# Supported languages (Chatterbox multilingual model)
-SUPPORTED_LANGUAGES = {
-    "Arabic": "ar",
-    "Chinese": "zh",
-    "Danish": "da",
-    "Dutch": "nl",
-    "English": "en",
-    "Finnish": "fi",
-    "French": "fr",
-    "German": "de",
-    "Greek": "el",
-    "Hebrew": "he",
-    "Hindi": "hi",
-    "Italian": "it",
-    "Japanese": "ja",
-    "Korean": "ko",
-    "Malay": "ms",
-    "Norwegian": "no",
-    "Polish": "pl",
-    "Portuguese": "pt",
-    "Russian": "ru",
-    "Spanish": "es",
-    "Swahili": "sw",
-    "Swedish": "sv",
-    "Turkish": "tr",
-}
-
-# Google Translate language codes (may differ from Chatterbox)
-GOOGLE_LANG_CODES = {
-    "Arabic": "ar",
-    "Chinese": "zh-CN",
-    "Danish": "da",
-    "Dutch": "nl",
-    "English": "en",
-    "Finnish": "fi",
-    "French": "fr",
-    "German": "de",
-    "Greek": "el",
-    "Hebrew": "he",
-    "Hindi": "hi",
-    "Italian": "it",
-    "Japanese": "ja",
-    "Korean": "ko",
-    "Malay": "ms",
-    "Norwegian": "no",
-    "Polish": "pl",
-    "Portuguese": "pt",
-    "Russian": "ru",
-    "Spanish": "es",
-    "Swahili": "sw",
-    "Swedish": "sv",
-    "Turkish": "tr",
-}
-
-# ISO 639-1 (2-letter) to ISO 639-2 (3-letter) mapping for ffmpeg subtitle metadata
-ISO_639_1_TO_639_2 = {
-    "ar": "ara",
-    "zh": "chi",
-    "da": "dan",
-    "nl": "dut",
-    "en": "eng",
-    "fi": "fin",
-    "fr": "fre",
-    "de": "ger",
-    "el": "gre",
-    "he": "heb",
-    "hi": "hin",
-    "it": "ita",
-    "ja": "jpn",
-    "ko": "kor",
-    "ms": "may",
-    "no": "nor",
-    "pl": "pol",
-    "pt": "por",
-    "ru": "rus",
-    "es": "spa",
-    "sw": "swa",
-    "sv": "swe",
-    "tr": "tur",
-}
+from languages import (
+    SUPPORTED_LANGUAGES_BY_NAME as SUPPORTED_LANGUAGES,
+    GOOGLE_LANG_CODES_BY_NAME as GOOGLE_LANG_CODES,
+    ISO_639_1_TO_639_2,
+)
 
 WHISPER_MODEL = "base"
 OUTPUT_DIR = Path("output")
