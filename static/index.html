@@ -1982,13 +1982,9 @@
                         <span class="stage-light"></span>
                         <span>Translate</span>
                     </div>
-                    <div class="stage" data-stage="synthesize">
+                    <div class="stage" data-stage="upload">
                         <span class="stage-light"></span>
-                        <span>Synthesize</span>
-                    </div>
-                    <div class="stage" data-stage="merge">
-                        <span class="stage-light"></span>
-                        <span>Merge</span>
+                        <span>Upload</span>
                     </div>
                 </div>
             </div>
@@ -2096,13 +2092,9 @@
                         <span class="stage-light"></span>
                         <span>Translate</span>
                     </div>
-                    <div class="stage job-stage" data-stage="synthesize">
+                    <div class="stage job-stage" data-stage="upload">
                         <span class="stage-light"></span>
-                        <span>Synthesize</span>
-                    </div>
-                    <div class="stage job-stage" data-stage="merge">
-                        <span class="stage-light"></span>
-                        <span>Merge</span>
+                        <span>Upload</span>
                     </div>
                 </div>
 
@@ -2377,8 +2369,29 @@
             sw: '🇰🇪', sv: '🇸🇪', tr: '🇹🇷'
         };
 
-        // Stage order for progress tracking
-        const STAGE_ORDER = ['download', 'transcribe', 'translate', 'synthesize', 'merge', 'done'];
+        // Stage order for progress tracking (simplified UI stages)
+        const STAGE_ORDER = ['download', 'transcribe', 'translate', 'upload', 'done'];
+
+        // Map backend stages to simplified UI stages
+        function mapBackendStageToUI(backendStage) {
+            const stageMapping = {
+                'pending': 'download',
+                'initializing': 'download',
+                'download': 'download',
+                'separate': 'download',
+                'diarize': 'download',
+                'transcribe': 'transcribe',
+                'translate': 'translate',
+                'synthesize': 'upload',
+                'mix': 'upload',
+                'subtitles': 'upload',
+                'merge': 'upload',
+                'upload': 'upload',
+                'uploading': 'upload',
+                'done': 'done'
+            };
+            return stageMapping[backendStage] || backendStage;
+        }
 
         // Initialize
         async function init() {
@@ -3063,6 +3076,9 @@
 
         // Update progress display
         function updateProgress(percent, stage) {
+            // Map backend stage to UI stage for indicator lights
+            const uiStage = mapBackendStageToUI(stage);
+
             // Update percentage text
             progressText.textContent = `${percent}%`;
 
@@ -3073,9 +3089,9 @@
             // Update arc
             updateProgressArc(percent);
 
-            // Update stage indicators
-            const stageIndex = STAGE_ORDER.indexOf(stage);
-            document.querySelectorAll('.stage').forEach((el, i) => {
+            // Update stage indicators (use mapped UI stage)
+            const stageIndex = STAGE_ORDER.indexOf(uiStage);
+            document.querySelectorAll('#stages .stage').forEach((el, i) => {
                 const elStage = el.dataset.stage;
                 const elIndex = STAGE_ORDER.indexOf(elStage);
 
@@ -3083,14 +3099,14 @@
 
                 if (elIndex < stageIndex) {
                     el.classList.add('complete');
-                } else if (elIndex === stageIndex && stage !== 'done') {
+                } else if (elIndex === stageIndex && uiStage !== 'done') {
                     el.classList.add('active');
                 }
             });
 
             // Mark all complete if done
-            if (stage === 'done') {
-                document.querySelectorAll('.stage').forEach(el => {
+            if (uiStage === 'done') {
+                document.querySelectorAll('#stages .stage').forEach(el => {
                     el.classList.remove('active');
                     el.classList.add('complete');
                 });
@@ -3392,11 +3408,17 @@
             // Update stage text
             const stageLabels = {
                 'pending': 'Initializing...',
-                'download': 'Downloading video...',
+                'initializing': 'Initializing...',
+                'download': 'Downloading & processing...',
+                'separate': 'Separating audio...',
+                'diarize': 'Identifying speakers...',
                 'transcribe': 'Transcribing audio...',
                 'translate': 'Translating text...',
                 'synthesize': 'Generating speech...',
+                'mix': 'Mixing audio...',
+                'subtitles': 'Creating subtitles...',
                 'merge': 'Creating final video...',
+                'upload': 'Uploading to storage...',
                 'uploading': 'Uploading to storage...',
                 'done': 'Translation complete!'
             };
@@ -3415,7 +3437,9 @@
 
         // Update job stage indicators
         function updateJobStageIndicators(currentStage) {
-            const stageIndex = STAGE_ORDER.indexOf(currentStage);
+            // Map backend stage to UI stage for indicator lights
+            const uiStage = mapBackendStageToUI(currentStage);
+            const stageIndex = STAGE_ORDER.indexOf(uiStage);
 
             document.querySelectorAll('.job-stage').forEach((el) => {
                 const elStage = el.dataset.stage;
@@ -3425,13 +3449,13 @@
 
                 if (elIndex < stageIndex) {
                     el.classList.add('complete');
-                } else if (elIndex === stageIndex && currentStage !== 'done') {
+                } else if (elIndex === stageIndex && uiStage !== 'done') {
                     el.classList.add('active');
                 }
             });
 
             // Mark all complete if done
-            if (currentStage === 'done') {
+            if (uiStage === 'done') {
                 document.querySelectorAll('.job-stage').forEach(el => {
                     el.classList.remove('active');
                     el.classList.add('complete');

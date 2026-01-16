@@ -11,8 +11,11 @@ yt-dlp>=2024.0.0
 
 # API clients
 openai>=1.0.0
-replicate>=0.20.0
+replicate>=1.0.0
 httpx>=0.25.0
+
+# Audio processing
+numpy>=1.24.0
 
 # Translation
 deep-translator>=1.11.0
