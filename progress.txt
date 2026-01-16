@@ -135,3 +135,25 @@
 - US-007 (Consolidate Signed URL Functions) follows a similar pattern and will be straightforward
 - Pre-existing mypy errors in db.py (19 errors) are Supabase SDK type issues, not related to this change
 
+## US-007: Consolidate Signed URL Functions - COMPLETE
+
+**Date:** 2026-01-16
+**Files changed:**
+- db.py
+
+**Implementation notes:**
+- Created generic `get_signed_url(bucket, storage_path, expires_in=3600) -> str` function
+- Refactored 3 signed URL functions to use the generic function as wrappers:
+  - `get_preview_signed_url(storage_path, expires_in=3600)` -> extracts bucket/path, calls generic
+  - `get_translation_signed_url(storage_path, expires_in=86400)` -> extracts bucket/path, calls generic (note different default)
+  - `get_voice_sample_signed_url(storage_path, expires_in=3600)` -> extracts bucket/path, calls generic
+- Original function signatures preserved exactly for backwards compatibility
+- The wrappers still handle parsing full storage paths (e.g., "previews/{id}/preview.mp4") into bucket + path components
+- Net change: +26 lines added, -15 lines removed (11 net lines added for new generic function)
+
+**Learnings:**
+- Pattern mirrors US-006 (upload functions), making the refactoring straightforward
+- The signed URL functions are simpler than upload since they only need client init and one API call
+- Wrappers still do path parsing for backwards compatibility with existing callers that pass full paths
+- Could potentially simplify further by having callers pass bucket+path directly, but would break API
+

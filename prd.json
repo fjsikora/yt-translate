@@ -108,8 +108,8 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 7. Created generic get_signed_url function. All 3 signed URL functions now use it as wrappers."
     },
     {
       "id": "US-008",
