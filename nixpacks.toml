@@ -1,3 +1,6 @@
+[phases.setup]
+aptPkgs = ["ffmpeg"]
+
 [phases.install]
 cmds = [
     "python -m venv --copies /opt/venv",
