@@ -252,3 +252,45 @@ def merge_audio_video(video_path: Path, audio_path: Path, output_name: str,
 - The -metadata:s:s:0 option sets metadata for stream 0 of the subtitle track
 - Backward compatibility maintained - existing callers don't need to change
 
+
+## US-010: Update translate.py Main Pipeline - COMPLETE
+
+**Date:** 2026-01-15 (iteration 10)
+**Files changed:**
+- translate.py (updated main() function, ProgressTracker.STAGES, added import)
+
+**Implementation notes:**
+- Updated ProgressTracker.STAGES from 5 to 8 stages:
+  1. download - Download Video
+  2. separate - Separate Audio (NEW)
+  3. diarize - Identify Speakers (NEW)
+  4. transcribe - Transcribe Audio
+  5. translate - Translate Text
+  6. synthesize - Synthesize Voice
+  7. mix - Mix Audio (NEW)
+  8. merge - Merge Audio/Video
+- Imported AudioSeparator and SpeakerDiarizer from audio_processing module
+- Full pipeline flow:
+  1. Download video and extract audio
+  2. Separate audio into vocals and background using Demucs
+  3. Run speaker diarization on vocals to identify speakers
+  4. Extract voice samples for each speaker
+  5. Transcribe vocals (cleaner input than mixed audio)
+  6. Translate text segments
+  7. Synthesize speech with multi-speaker support (or single speaker fallback)
+  8. Mix translated speech with original background at 30% volume
+  9. Generate SRT subtitles and embed in final video
+
+**Key implementation decisions:**
+- Multi-speaker synthesis used when >1 speaker detected
+- Single speaker mode uses the one extracted voice sample
+- Fallback to original audio if no speaker samples extracted
+- Background volume set at 30% (configurable in mix_audio_with_background)
+- Subtitle language code converted from ISO 639-1 to ISO 639-2 for ffmpeg
+
+**Learnings:**
+- The pipeline is now fully integrated with all audio processing components
+- Separating vocals before transcription should improve Whisper accuracy
+- Multi-speaker synthesis creates more natural-sounding translations
+- Background audio preservation maintains the original video's atmosphere
+
