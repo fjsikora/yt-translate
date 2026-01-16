@@ -68,3 +68,25 @@
 - Python syntax validation via py_compile works well when mypy isn't available
 - Type annotations validated via AST parsing
 
+
+## US-004: Extract Per-Speaker Voice Samples - COMPLETE
+
+**Date:** 2026-01-15 23:30
+**Files changed:**
+- No code changes needed (already implemented in US-001)
+
+**Implementation notes:**
+- extract_speaker_samples() was already fully implemented in US-001
+- Verified all acceptance criteria:
+  - Finds longest segment per speaker: max(segs, key=lambda x: x["duration"])
+  - Target duration 12s, capped at 15s max (within 10-15s range)
+  - Output is 24kHz mono WAV via ffmpeg: -ar 24000 -ac 1
+  - Returns dict[str, Path] mapping speaker ID to sample path
+  - Fallback for <10s audio: min_duration=3.0 allows shorter samples
+  - Typecheck passes (AST validation confirmed)
+
+**Learnings:**
+- US-001 was very comprehensive - it implemented most of the functionality for US-001 through US-004
+- Stories US-002, US-003, US-004 mainly required verification and state updates
+- Future PRDs should be more granular if early stories implement too much
+
