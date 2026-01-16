@@ -34,6 +34,7 @@ All 28 user stories have been implemented:
 1. Go to **Storage** in Supabase Dashboard
 2. Create bucket: `previews` (for 60-second preview videos)
 3. Create bucket: `translations` (for full translated videos)
+4. Create bucket: `voice-samples` (for speaker voice cloning samples)
 
 **Enable Google OAuth:**
 
@@ -67,6 +68,13 @@ All 28 user stories have been implemented:
 # ===================
 OPENAI_API_KEY=sk-...
 REPLICATE_API_TOKEN=r8_...
+
+# ===================
+# REQUIRED - Hugging Face (for speaker diarization)
+# ===================
+# Get your token at: https://huggingface.co/settings/tokens
+# Required for pyannote.audio speaker diarization model
+HUGGINGFACE_TOKEN=hf_...
 
 # ===================
 # REQUIRED - Supabase
@@ -111,6 +119,7 @@ pip install -r requirements-cloud.txt
 cat > .env << 'EOF'
 OPENAI_API_KEY=sk-...
 REPLICATE_API_TOKEN=r8_...
+HUGGINGFACE_TOKEN=hf_...
 SUPABASE_URL=https://xxxxx.supabase.co
 SUPABASE_SERVICE_KEY=eyJ...
 STRIPE_SECRET_KEY=sk_test_...
@@ -175,9 +184,10 @@ stripe listen --forward-to localhost:8000/webhook/stripe
 |---------|--------------|------|
 | **OpenAI** | API key for Whisper | ☐ |
 | **Replicate** | API token for Chatterbox TTS | ☐ |
+| **Hugging Face** | Token for pyannote speaker diarization | ☐ |
 | **Supabase** | Project URL + Service Key | ☐ |
 | **Supabase** | Database migration run | ☐ |
-| **Supabase** | Storage buckets created (`previews`, `translations`) | ☐ |
+| **Supabase** | Storage buckets created (`previews`, `translations`, `voice-samples`) | ☐ |
 | **Supabase** | Google OAuth configured | ☐ |
 | **Stripe** | Secret key | ☐ |
 | **Stripe** | Webhook endpoint configured | ☐ |
@@ -244,8 +254,13 @@ pip install -r requirements-cloud.txt
 - Ensure Google provider is enabled in Supabase
 
 **Storage upload fails:**
-- Verify buckets `previews` and `translations` exist in Supabase Storage
+- Verify buckets `previews`, `translations`, and `voice-samples` exist in Supabase Storage
 - Check `SUPABASE_SERVICE_KEY` has correct permissions
+
+**Speaker diarization fails:**
+- Ensure `HUGGINGFACE_TOKEN` is set correctly
+- Accept the pyannote model license at: https://huggingface.co/pyannote/speaker-diarization-3.1
+- Accept segmentation model license at: https://huggingface.co/pyannote/segmentation-3.0
 
 ---
 
