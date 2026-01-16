@@ -42,6 +42,12 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 import db
+from languages import (
+    SUPPORTED_LANGUAGES,
+    GOOGLE_LANG_CODES,
+    ISO_639_1_TO_639_2,
+    LANG_NAMES,
+)
 
 # Note: Local pyannote SpeakerDiarizer has been replaced with Replicate's
 # speaker-diarization API for lightweight cloud deployment (no PyTorch required)
@@ -87,53 +93,6 @@ def get_ytdlp_opts(extra_opts: dict = None) -> dict:
 # In-memory rate limiting storage (use Redis for production with multiple instances)
 # Structure: {ip_address: [timestamp1, timestamp2, ...]}
 preview_rate_limits: dict[str, list[float]] = defaultdict(list)
-
-# Supported languages (Chatterbox multilingual model)
-SUPPORTED_LANGUAGES = {
-    "ar": "Arabic", "zh": "Chinese", "da": "Danish", "nl": "Dutch",
-    "en": "English", "fi": "Finnish", "fr": "French", "de": "German",
-    "el": "Greek", "he": "Hebrew", "hi": "Hindi", "it": "Italian",
-    "ja": "Japanese", "ko": "Korean", "ms": "Malay", "no": "Norwegian",
-    "pl": "Polish", "pt": "Portuguese", "ru": "Russian", "es": "Spanish",
-    "sw": "Swahili", "sv": "Swedish", "tr": "Turkish",
-}
-
-# Google Translate language codes (may differ slightly)
-GOOGLE_LANG_CODES = {
-    "ar": "ar", "zh": "zh-CN", "da": "da", "nl": "nl", "en": "en",
-    "fi": "fi", "fr": "fr", "de": "de", "el": "el", "he": "he",
-    "hi": "hi", "it": "it", "ja": "ja", "ko": "ko", "ms": "ms",
-    "no": "no", "pl": "pl", "pt": "pt", "ru": "ru", "es": "es",
-    "sw": "sw", "sv": "sv", "tr": "tr",
-}
-
-# ISO 639-1 (2-letter) to ISO 639-2 (3-letter) language code mapping
-# Used for ffmpeg subtitle metadata which requires 3-letter codes
-ISO_639_1_TO_639_2 = {
-    "ar": "ara",
-    "zh": "chi",
-    "da": "dan",
-    "nl": "dut",
-    "en": "eng",
-    "fi": "fin",
-    "fr": "fre",
-    "de": "ger",
-    "el": "gre",
-    "he": "heb",
-    "hi": "hin",
-    "it": "ita",
-    "ja": "jpn",
-    "ko": "kor",
-    "ms": "may",
-    "no": "nor",
-    "pl": "pol",
-    "pt": "por",
-    "ru": "rus",
-    "es": "spa",
-    "sw": "swa",
-    "sv": "swe",
-    "tr": "tur",
-}
 
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}
@@ -641,6 +600,181 @@ async def translate_segments(segments: list[dict], target_lang: str, job_id: str
 
     update_job(job_id, progress=55)
     return translated_segments
+
+
+async def translate_segments_llm(segments: list[dict], target_lang: str, job_id: str) -> list[dict]:
+    """
+    Translate segments using LLM for context-aware translation.
+
+    Sends all segments together so the LLM understands context,
+    then parses the response back into individual segments.
+
+    Falls back to Google Translate if LLM fails.
+    """
+    update_job(job_id, stage="translate", progress=50)
+
+    if not segments:
+        return []
+
+    # Build numbered transcript for the LLM
+    transcript_lines = []
+    segment_indices = []  # Track which segments have text
+    for i, seg in enumerate(segments):
+        text = seg.get("text", "").strip()
+        if text:
+            transcript_lines.append(f"{i}: {text}")
+            segment_indices.append(i)
+
+    if not transcript_lines:
+        # No text to translate, return empty translations
+        return [{
+            "start": s.get("start", 0.0),
+            "end": s.get("end", 0.0),
+            "duration": s.get("duration", 0.0),
+            "original_text": s.get("text", ""),
+            "translated_text": ""
+        } for s in segments]
+
+    target_lang_name = LANG_NAMES.get(target_lang, target_lang)
+
+    # For long videos, batch segments to stay within context limits
+    MAX_SEGMENTS_PER_BATCH = 50
+    all_translations = {}
+
+    if len(transcript_lines) <= MAX_SEGMENTS_PER_BATCH:
+        # Single batch - translate all at once
+        batch_translations = await _translate_batch_llm(
+            transcript_lines, target_lang_name, job_id
+        )
+        all_translations = batch_translations
+    else:
+        # Multiple batches with overlap for context continuity
+        print(f"Job {job_id}: Translating {len(transcript_lines)} segments in batches")
+        overlap = 5  # Segments of overlap between batches
+        batch_num = 0
+        for batch_start in range(0, len(transcript_lines), MAX_SEGMENTS_PER_BATCH - overlap):
+            batch_end = min(batch_start + MAX_SEGMENTS_PER_BATCH, len(transcript_lines))
+            batch_lines = transcript_lines[batch_start:batch_end]
+
+            batch_translations = await _translate_batch_llm(
+                batch_lines, target_lang_name, job_id
+            )
+
+            # Merge translations (later batches overwrite overlap regions)
+            all_translations.update(batch_translations)
+            batch_num += 1
+
+            # Update progress within translation stage
+            progress = 50 + int((batch_num / ((len(transcript_lines) / (MAX_SEGMENTS_PER_BATCH - overlap)) + 1)) * 5)
+            update_job(job_id, progress=min(progress, 55))
+
+    # Build translated segments
+    translated_segments = []
+    for i, seg in enumerate(segments):
+        original_text = seg.get("text", "")
+        translated_text = all_translations.get(i, original_text)  # Fallback to original
+
+        translated_segments.append({
+            "start": seg.get("start", 0.0),
+            "end": seg.get("end", 0.0),
+            "duration": seg.get("duration", 0.0),
+            "original_text": original_text,
+            "translated_text": translated_text
+        })
+
+    update_job(job_id, progress=55)
+    return translated_segments
+
+
+async def _translate_batch_llm(transcript_lines: list[str], target_lang_name: str, job_id: str) -> dict[int, str]:
+    """
+    Translate a batch of transcript lines using Replicate LLM.
+
+    Args:
+        transcript_lines: List of "INDEX: text" formatted lines
+        target_lang_name: Human-readable language name (e.g., "Spanish")
+        job_id: Job ID for logging
+
+    Returns:
+        Dict mapping segment index to translated text
+    """
+    transcript = "\n".join(transcript_lines)
+
+    prompt = f"""Translate the following numbered transcript lines to {target_lang_name}.
+
+IMPORTANT RULES:
+1. Maintain the exact same line numbers in your output
+2. Only output the translated text, preserving the "NUMBER: text" format
+3. Keep translations natural and conversational
+4. Maintain consistent terminology throughout
+5. Preserve the speaker's tone and style
+6. Do not add any explanations or notes
+
+Transcript:
+{transcript}
+
+Translate each line to {target_lang_name}, keeping the same numbered format:"""
+
+    try:
+        output = replicate.run(
+            "meta/meta-llama-3.1-405b-instruct",
+            input={
+                "prompt": prompt,
+                "max_tokens": 4096,
+                "temperature": 0.3,  # Lower for more consistent translations
+            }
+        )
+
+        # Collect streaming output
+        if hasattr(output, '__iter__') and not isinstance(output, str):
+            response_text = "".join(str(chunk) for chunk in output)
+        else:
+            response_text = str(output)
+
+        print(f"Job {job_id}: LLM translation response length: {len(response_text)}")
+
+        # Parse the numbered response back into translations
+        translations = {}
+        for line in response_text.strip().split("\n"):
+            line = line.strip()
+            if not line or ":" not in line:
+                continue
+
+            parts = line.split(":", 1)
+            try:
+                # Handle potential formatting like "0:" or " 0 :" etc.
+                idx_str = parts[0].strip()
+                idx = int(idx_str)
+                translations[idx] = parts[1].strip()
+            except ValueError:
+                continue
+
+        print(f"Job {job_id}: LLM translated {len(translations)}/{len(transcript_lines)} segments")
+        return translations
+
+    except Exception as e:
+        print(f"Job {job_id}: LLM translation failed: {e}, falling back to Google Translate")
+        # Fallback: parse indices from transcript_lines and translate with Google
+        translations = {}
+        for line in transcript_lines:
+            if ":" in line:
+                parts = line.split(":", 1)
+                try:
+                    idx = int(parts[0].strip())
+                    text = parts[1].strip()
+                    # Use Google Translate as fallback
+                    try:
+                        google_code = GOOGLE_LANG_CODES.get(
+                            next((k for k, v in LANG_NAMES.items() if v == target_lang_name), target_lang_name),
+                            target_lang_name.lower()[:2]
+                        )
+                        translated = GoogleTranslator(source='auto', target=google_code).translate(text)
+                        translations[idx] = translated
+                    except Exception:
+                        translations[idx] = text  # Keep original if translation fails
+                except ValueError:
+                    continue
+        return translations
 
 
 async def synthesize_speech(
@@ -1392,7 +1526,7 @@ async def process_translation(job_id: str, video_url: str, target_language: str)
         segments = await transcribe_audio(vocals_path, job_id)
 
         # 5. Translate segments (preserves timestamps)
-        translated_segments = await translate_segments(segments, target_language, job_id)
+        translated_segments = await translate_segments_llm(segments, target_language, job_id)
 
         # 6. Synthesize (TTS) - use multi-speaker if diarization available, else single speaker
         if speaker_voice_urls and diarization_segments:
@@ -1659,7 +1793,7 @@ async def process_preview(preview_id: str, video_url: str, target_language: str)
 
         # 5. Translate segments (preserves timestamps)
         db.update_preview_job(preview_id, stage="translate", progress=50)
-        translated_segments = await translate_segments(segments, target_language, preview_id)
+        translated_segments = await translate_segments_llm(segments, target_language, preview_id)
         db.update_preview_job(preview_id, progress=55)
 
         # 6. Synthesize speech (TTS) - use multi-speaker if diarization available
@@ -1833,10 +1967,14 @@ async def create_preview(
         preview_request.target_language
     )
 
+    # Immediately update status to "processing" so first poll sees it
+    # This eliminates the race condition where job sits in "pending" for seconds
+    db.update_preview_job(preview_id, status="processing", stage="initializing", progress=0)
+
     return PreviewResponse(
         preview_id=preview_id,
-        status="pending",
-        message="Preview job created. Processing will begin shortly."
+        status="processing",
+        message="Preview processing started"
     )
 
 
@@ -2822,7 +2960,7 @@ async def process_full_translation(translation_job_id: str, video_url: str, targ
 
         # 5. Translate segments (preserves timestamps)
         db.update_translation_job(translation_job_id, stage="translate", progress=50)
-        translated_segments = await translate_segments(segments, target_language, translation_job_id)
+        translated_segments = await translate_segments_llm(segments, target_language, translation_job_id)
         db.update_translation_job(translation_job_id, progress=55)
 
         # 6. Synthesize speech (TTS) - use multi-speaker if diarization available
