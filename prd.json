@@ -215,8 +215,8 @@
         "Typecheck passes"
       ],
       "priority": 14,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 14 - Added diarize_speakers() function, updated all three pipeline functions"
     },
     {
       "id": "US-015",

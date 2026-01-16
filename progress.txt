@@ -425,3 +425,50 @@ segments = await transcribe_audio(vocals_path, job_id)
 - Fallback to original audio ensures the pipeline doesn't fail completely
 - Progress percentages were adjusted to accommodate the new separation step (26-30%)
 
+
+## US-014: Add Speaker Diarization to cloud_translate.py - COMPLETE
+
+**Date:** 2026-01-15 (iteration 14)
+**Files changed:**
+- cloud_translate.py (added import, new function, updated 3 pipeline functions)
+
+**Implementation notes:**
+- Added import: `from audio_processing import AudioSeparator, SpeakerDiarizer`
+- Created async diarize_speakers() helper function:
+  - Uses SpeakerDiarizer to run pyannote speaker diarization on vocals
+  - Extracts per-speaker voice samples (24kHz mono WAV for Chatterbox)
+  - Uploads each speaker's sample to Supabase Storage via db.upload_voice_sample()
+  - Gets signed URLs for each speaker's sample via db.get_voice_sample_signed_url()
+  - Returns tuple of (diarization_segments, speaker_voice_urls)
+  - Graceful fallback: returns empty results if diarization fails
+- Updated three pipeline functions to use diarization:
+  1. process_translation() - the older /translate API endpoint
+  2. process_preview() - preview pipeline for 60-second clips
+  3. process_full_translation() - full translation after payment
+- All pipelines now have diarization_segments and speaker_voice_urls available for US-015
+
+**Key function signature:**
+```python
+async def diarize_speakers(
+    vocals_path: Path,
+    job_id: str
+) -> tuple[list[dict], dict[str, str]]:
+```
+
+**Pipeline stages updated:**
+1. download (5-25%)
+2. separate (26-30%)
+3. diarize (31-40%)  # NEW
+4. transcribe (41-48%)
+5. translate (50-55%)
+6. synthesize (60-85%)
+7. merge (90-95%)
+8. upload (95%)
+9. done (100%)
+
+**Learnings:**
+- The db.upload_voice_sample() function already supports speaker_id parameter (added in US-012)
+- Diarization must happen after audio separation (vocals only, not full audio)
+- The speaker_voice_urls dict maps speaker IDs (e.g., "SPEAKER_00") to signed URLs
+- These URLs are passed to US-015 for multi-speaker synthesis
+
