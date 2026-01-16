@@ -142,6 +142,8 @@ def create_preview_job(
         "video_url": video_url,
         "target_language": target_language,
         "status": "pending",
+        "stage": "queued",
+        "progress": 0,
     }
 
     if user_id:
@@ -343,6 +345,52 @@ def list_translation_jobs_by_user(user_id: str) -> list[dict]:
 
 PREVIEW_BUCKET = "previews"
 TRANSLATIONS_BUCKET = "translations"
+VOICE_SAMPLES_BUCKET = "voice-samples"
+
+
+def upload_to_storage(
+    bucket: str,
+    job_id: str,
+    file_path: str,
+    filename: str,
+    content_type: str
+) -> str:
+    """
+    Upload a file to Supabase Storage.
+
+    This is the generic upload function used by all storage operations.
+
+    Args:
+        bucket: Storage bucket name (e.g., "previews", "translations", "voice-samples")
+        job_id: UUID of the job (used as folder in storage path)
+        file_path: Local path to the file to upload
+        filename: Name for the file in storage (e.g., "preview.mp4", "speaker1.wav")
+        content_type: MIME type of the file (e.g., "video/mp4", "audio/wav")
+
+    Returns:
+        Full storage path of the uploaded file (e.g., "bucket/{job_id}/{filename}")
+
+    Raises:
+        Exception: If upload fails
+    """
+    client = get_supabase_client()
+
+    # Storage path: {job_id}/{filename}
+    storage_path = f"{job_id}/{filename}"
+
+    # Read file and upload
+    with open(file_path, "rb") as f:
+        file_content = f.read()
+
+    # Upload to Supabase Storage
+    client.storage.from_(bucket).upload(
+        path=storage_path,
+        file=file_content,
+        file_options={"content-type": content_type}
+    )
+
+    # Return the full storage path
+    return f"{bucket}/{storage_path}"
 
 
 def upload_preview_to_storage(preview_id: str, file_path: str) -> str:
@@ -359,24 +407,13 @@ def upload_preview_to_storage(preview_id: str, file_path: str) -> str:
     Raises:
         Exception: If upload fails
     """
-    client = get_supabase_client()
-
-    # Storage path: previews/{preview_id}/preview.mp4
-    storage_path = f"{preview_id}/preview.mp4"
-
-    # Read file and upload
-    with open(file_path, "rb") as f:
-        file_content = f.read()
-
-    # Upload to Supabase Storage
-    result = client.storage.from_(PREVIEW_BUCKET).upload(
-        path=storage_path,
-        file=file_content,
-        file_options={"content-type": "video/mp4"}
+    return upload_to_storage(
+        bucket=PREVIEW_BUCKET,
+        job_id=preview_id,
+        file_path=file_path,
+        filename="preview.mp4",
+        content_type="video/mp4"
     )
-
-    # Return the full storage path
-    return f"{PREVIEW_BUCKET}/{storage_path}"
 
 
 def get_preview_signed_url(storage_path: str, expires_in: int = 3600) -> str:
@@ -418,24 +455,13 @@ def upload_translation_to_storage(translation_job_id: str, file_path: str) -> st
     Raises:
         Exception: If upload fails
     """
-    client = get_supabase_client()
-
-    # Storage path: translations/{translation_job_id}/translation.mp4
-    storage_path = f"{translation_job_id}/translation.mp4"
-
-    # Read file and upload
-    with open(file_path, "rb") as f:
-        file_content = f.read()
-
-    # Upload to Supabase Storage
-    client.storage.from_(TRANSLATIONS_BUCKET).upload(
-        path=storage_path,
-        file=file_content,
-        file_options={"content-type": "video/mp4"}
+    return upload_to_storage(
+        bucket=TRANSLATIONS_BUCKET,
+        job_id=translation_job_id,
+        file_path=file_path,
+        filename="translation.mp4",
+        content_type="video/mp4"
     )
-
-    # Return the full storage path
-    return f"{TRANSLATIONS_BUCKET}/{storage_path}"
 
 
 def get_translation_signed_url(storage_path: str, expires_in: int = 86400) -> str:
@@ -463,10 +489,6 @@ def get_translation_signed_url(storage_path: str, expires_in: int = 86400) -> st
     return result.get("signedURL", "")
 
 
-# Bucket for voice samples (temporary storage for Replicate API)
-VOICE_SAMPLES_BUCKET = "voice-samples"
-
-
 def upload_voice_sample(job_id: str, file_path: str, speaker_id: str = "default") -> str:
     """
     Upload a voice sample to Supabase Storage for Replicate API.
@@ -485,24 +507,13 @@ def upload_voice_sample(job_id: str, file_path: str, speaker_id: str = "default"
     Raises:
         Exception: If upload fails
     """
-    client = get_supabase_client()
-
-    # Storage path: voice-samples/{job_id}/{speaker_id}.wav
-    storage_path = f"{job_id}/{speaker_id}.wav"
-
-    # Read file and upload
-    with open(file_path, "rb") as f:
-        file_content = f.read()
-
-    # Upload to Supabase Storage
-    client.storage.from_(VOICE_SAMPLES_BUCKET).upload(
-        path=storage_path,
-        file=file_content,
-        file_options={"content-type": "audio/wav"}
+    return upload_to_storage(
+        bucket=VOICE_SAMPLES_BUCKET,
+        job_id=job_id,
+        file_path=file_path,
+        filename=f"{speaker_id}.wav",
+        content_type="audio/wav"
     )
-
-    # Return the full storage path
-    return f"{VOICE_SAMPLES_BUCKET}/{storage_path}"
 
 
 def get_voice_sample_signed_url(storage_path: str, expires_in: int = 3600) -> str:
