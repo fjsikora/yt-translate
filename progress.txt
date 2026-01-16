@@ -147,3 +147,34 @@
 - Overlap calculation is the best way to match them
 - The existing synthesize_segments() is kept for backward compatibility (single-speaker mode)
 
+
+## US-007: Add Background Audio Mixing - COMPLETE
+
+**Date:** 2026-01-15 (iteration 7)
+**Files changed:**
+- translate.py (added mix_audio_with_background function)
+
+**Implementation notes:**
+- Created new function mix_audio_with_background() at line 653
+- Uses ffmpeg filter_complex for professional audio mixing:
+  - Speech track at 100% volume (first input)
+  - Background track at configurable volume (default 30%)
+  - apad filter pads shorter background with silence
+  - amix with duration=first ensures output matches speech duration
+- Function signature: (speech_path, background_path, output_path=None, background_volume=0.3) -> Path
+- Volume parameter clamped to 0.0-1.0 range for safety
+
+**Key ffmpeg filter:**
+```
+[1:a]apad,volume={volume}[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0
+```
+- apad: Pad background with silence if shorter than speech
+- volume: Apply configurable volume to background
+- amix: Mix two audio streams, output duration=first (speech)
+- dropout_transition=0: No fade at end
+
+**Learnings:**
+- ffmpeg amix filter is the cleanest way to mix audio streams with volume control
+- Using duration=first ensures output matches the speech track length
+- apad is essential to handle backgrounds shorter than speech
+
