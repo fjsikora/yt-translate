@@ -1,439 +1,299 @@
 {
-  "project": "video-translation-monetization",
-  "branchName": "ralph/video-translation-monetization",
-  "description": "Implement pay-per-video monetization with free 60-second preview, Supabase auth, and Stripe payments",
+  "project": "audio-quality-improvements",
+  "branchName": "ralph/audio-quality-improvements",
+  "description": "Comprehensive audio processing pipeline: eliminate time-stretching artifacts, add speaker diarization for voice matching, preserve background audio, and embed subtitles.",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Database Schema Setup",
-      "description": "As a developer, I need database tables to store users, preview jobs, and translation jobs so that data persists across sessions.",
+      "title": "Create Audio Processing Module",
+      "description": "As a developer, I need a new audio_processing.py module with AudioSeparator and SpeakerDiarizer classes so that both translation scripts can share audio processing logic.",
       "acceptanceCriteria": [
-        "profiles table created with id, email, tos_accepted_at, created_at",
-        "preview_jobs table created with session_id, user_id, video_url, target_language, status, preview_file_path",
-        "translation_jobs table created with user_id, preview_job_id, price_cents, stripe fields, status, output_file_path",
-        "Row Level Security (RLS) enabled on all tables",
-        "Users can only read their own records",
+        "audio_processing.py file created in project root",
+        "AudioSeparator class with separate() and save_separated() methods",
+        "SpeakerDiarizer class with diarize(), get_speaker_segments(), and extract_speaker_samples() methods",
+        "Both classes handle errors gracefully with fallbacks",
         "Typecheck passes"
       ],
       "priority": 1,
       "passes": true,
-      "notes": "Completed in iteration 1. SQL migration file: supabase_migrations/migrations/001_initial_schema.sql"
+      "notes": "Completed in iteration 1 - audio_processing.py created with AudioSeparator and SpeakerDiarizer classes"
     },
     {
       "id": "US-002",
-      "title": "Supabase Client Integration",
-      "description": "As a developer, I need Supabase Python client configured so that the backend can interact with the database.",
+      "title": "Integrate Demucs for Audio Separation",
+      "description": "As a developer, I need the AudioSeparator class to use Demucs v4 to separate vocals from background audio.",
       "acceptanceCriteria": [
-        "supabase package added to requirements-cloud.txt",
-        "Supabase client initialized with env vars (SUPABASE_URL, SUPABASE_SERVICE_KEY)",
-        "Helper functions for CRUD operations on each table",
-        "Connection tested successfully",
+        "demucs package added to requirements.txt and requirements-cloud.txt",
+        "AudioSeparator loads htdemucs model on initialization",
+        "separate() returns tuple of (vocals, background, sample_rate)",
+        "save_separated() writes vocals.wav and background.wav to output directory",
+        "Works on both GPU and CPU",
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": true,
-      "notes": "Completed in iteration 2. Created db.py with full CRUD helpers. Renamed supabase/ to supabase_migrations/ to fix import conflict."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-003",
-      "title": "Video Info Extraction Endpoint",
-      "description": "As a user, I want to paste a video URL and see its title and duration before committing to a preview.",
+      "title": "Integrate pyannote.audio for Speaker Diarization",
+      "description": "As a developer, I need the SpeakerDiarizer class to identify different speakers in the audio.",
       "acceptanceCriteria": [
-        "POST /video-info endpoint accepts video_url",
-        "Returns video_title, duration_seconds, thumbnail_url (if available)",
-        "Returns price_quote for full translation (calculated from duration)",
-        "Handles invalid URLs with appropriate error message",
+        "pyannote.audio package added to requirements.txt",
+        "SpeakerDiarizer uses pyannote/speaker-diarization-3.1 model",
+        "diarize() returns list of segments with speaker labels and timestamps",
+        "get_speaker_segments() groups segments by speaker ID",
+        "Supports HUGGINGFACE_TOKEN environment variable",
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": "Completed in iteration 3. Added /video-info endpoint with VideoInfoRequest/Response models and calculate_price_cents() helper."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-004",
-      "title": "Preview Job Creation",
-      "description": "As a guest user, I want to start a free preview translation so I can evaluate the quality before paying.",
+      "title": "Extract Per-Speaker Voice Samples",
+      "description": "As a developer, I need to extract clean voice samples for each identified speaker to use for voice cloning.",
       "acceptanceCriteria": [
-        "POST /preview endpoint accepts video_url, target_language, session_id",
-        "Creates preview_job record in Supabase",
-        "Starts background task to process first 60 seconds only",
-        "Returns preview_id and initial status",
+        "extract_speaker_samples() finds longest segment per speaker",
+        "Extracts 10-15 seconds of audio per speaker",
+        "Output is 24kHz mono WAV (Chatterbox requirement)",
+        "Returns dict mapping speaker ID to sample file path",
+        "Handles case where speaker has <10s of audio (fallback to shorter sample)",
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "Completed in iteration 4. Added /preview endpoint with PreviewRequest/PreviewResponse models and process_preview background task."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-005",
-      "title": "Partial Video Download (60 seconds)",
-      "description": "As a developer, I need to download only the first 60 seconds of a video for preview processing.",
+      "title": "Remove Time-Stretching from translate.py",
+      "description": "As a developer, I need to remove the librosa time-stretching code that causes echo/reverb artifacts.",
       "acceptanceCriteria": [
-        "Modify download_video function to accept optional duration_limit parameter",
-        "Uses ffmpeg to extract only first 60 seconds",
-        "Audio extraction limited to 60 seconds",
-        "Works with all yt-dlp supported sites",
+        "Remove librosa.effects.time_stretch() calls from synthesize_segments()",
+        "TTS audio plays at natural 1x speed",
+        "Segment start times adjusted to prevent overlap",
+        "Clips don't cut off words (next clip waits for current to finish)",
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "Completed in iteration 5. Added duration_limit param to download_video(), ffmpeg trimming for video/audio, PREVIEW_DURATION_SECONDS constant."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-006",
-      "title": "Preview Processing Pipeline",
-      "description": "As a developer, I need the translation pipeline to work with partial videos for preview generation.",
+      "title": "Implement Multi-Speaker Synthesis in translate.py",
+      "description": "As a developer, I need synthesize_segments to use the correct voice sample for each speaker's segments.",
       "acceptanceCriteria": [
-        "process_preview function handles 60-second clips",
-        "Transcription, translation, TTS all work on partial audio",
-        "Preview video saved to Supabase Storage",
-        "preview_job status updated to completed with file path",
+        "New function synthesize_segments_multi_speaker() created",
+        "Maps each text segment to its speaker via diarization timestamps",
+        "Uses speaker-specific voice sample for Chatterbox generation",
+        "Falls back to first available sample if speaker matching fails",
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": "Completed in iteration 6. Implemented full pipeline in process_preview(), added upload_preview_to_storage() and get_preview_signed_url() to db.py."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-007",
-      "title": "Preview Status Endpoint",
-      "description": "As a user, I want to check the status of my preview so I know when it's ready.",
+      "title": "Add Background Audio Mixing",
+      "description": "As a developer, I need to mix the translated speech with the original background audio.",
       "acceptanceCriteria": [
-        "GET /preview/{preview_id} returns status, progress, stage",
-        "When completed, returns preview_url and price_quote",
-        "Guests can access by session_id match",
-        "Logged-in users can access by user_id match",
+        "New function mix_audio_with_background() created",
+        "Uses ffmpeg to mix speech (100% volume) with background (30% volume)",
+        "Output matches duration of speech track",
+        "Configurable background volume via parameter",
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": true,
-      "notes": "Completed in iteration 7. Added GET /preview/{preview_id} endpoint with session_id/user_id access control."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-008",
-      "title": "Preview Video Serving",
-      "description": "As a user, I want to watch my preview video so I can evaluate the translation quality.",
+      "title": "Add Subtitle Generation",
+      "description": "As a developer, I need to generate SRT subtitles from translated segments.",
       "acceptanceCriteria": [
-        "GET /preview/{preview_id}/video streams the preview file",
-        "Generates signed URL from Supabase Storage",
-        "URL expires after 1 hour",
-        "Only accessible to preview owner (session_id or user_id)",
+        "New function generate_srt() created",
+        "Converts segment timestamps to SRT format (HH:MM:SS,mmm)",
+        "Writes translated text for each segment",
+        "Handles Unicode characters correctly",
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": true,
-      "notes": "Completed in iteration 8. Added GET /preview/{preview_id}/video endpoint with signed URL redirect."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-009",
-      "title": "User Authentication - Signup",
-      "description": "As a guest, I want to create an account so I can purchase full translations.",
+      "title": "Embed Subtitles in Final Video",
+      "description": "As a developer, I need to embed the generated subtitles as toggleable closed captions in the output video.",
       "acceptanceCriteria": [
-        "POST /auth/signup accepts email, password",
-        "Creates user in Supabase Auth",
-        "Creates profile record with tos_accepted_at timestamp",
-        "Returns session token",
-        "Validates email format and password strength",
+        "Update merge_audio_video() to accept subtitle_path parameter",
+        "Subtitles embedded as soft subs (toggleable, not burned in)",
+        "Uses mov_text codec for MP4 compatibility",
+        "Subtitle language metadata set correctly",
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": true,
-      "notes": "Completed in iteration 9. Added /auth/signup endpoint with email/password validation, Supabase Auth signup_user(), profile creation with tos_accepted_at."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-010",
-      "title": "User Authentication - Login",
-      "description": "As a returning user, I want to log in so I can access my account.",
+      "title": "Update translate.py Main Pipeline",
+      "description": "As a developer, I need to integrate all audio processing components into the main translation pipeline.",
       "acceptanceCriteria": [
-        "POST /auth/login accepts email, password",
-        "Returns session token on success",
-        "Returns 401 on invalid credentials",
+        "Pipeline separates audio before transcription",
+        "Transcription uses isolated vocals (cleaner input)",
+        "Speaker diarization runs on vocals",
+        "Multi-speaker synthesis uses per-speaker voice samples",
+        "Background audio mixed with translated speech",
+        "Subtitles generated and embedded",
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": true,
-      "notes": "Completed in iteration 10. Added /auth/login endpoint with Supabase Auth sign_in_with_password()."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-011",
-      "title": "User Authentication - Google OAuth",
-      "description": "As a user, I want to sign in with Google for faster account creation.",
+      "title": "Fix cloud_translate.py Whisper Timestamps",
+      "description": "As a developer, I need cloud_translate.py to get segment timestamps from OpenAI Whisper API.",
       "acceptanceCriteria": [
-        "GET /auth/google redirects to Google OAuth",
-        "GET /auth/callback handles OAuth callback",
-        "Creates profile if new user",
-        "Returns session token",
+        "Change response_format from text to verbose_json",
+        "Add timestamp_granularities=[segment] parameter",
+        "Parse response to extract segment start/end times",
+        "Return segments in same format as local transcribe_audio()",
         "Typecheck passes"
       ],
       "priority": 11,
-      "passes": true,
-      "notes": "Completed in iteration 11. Added /auth/google redirect endpoint, /auth/callback handler, get_google_oauth_url() and exchange_oauth_code() in db.py."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-012",
-      "title": "Authentication Middleware",
-      "description": "As a developer, I need middleware to protect routes that require authentication.",
+      "title": "Fix cloud_translate.py Voice Cloning",
+      "description": "As a developer, I need cloud_translate.py to pass voice samples to the Replicate Chatterbox API.",
       "acceptanceCriteria": [
-        "JWT verification middleware created",
-        "Extracts user_id from valid token",
-        "Returns 401 for missing/invalid token",
-        "get_current_user dependency for FastAPI routes",
+        "Upload voice sample to Supabase Storage",
+        "Get signed URL for voice sample",
+        "Pass audio_prompt parameter to Replicate API",
+        "Add cfg_weight and exaggeration parameters",
         "Typecheck passes"
       ],
       "priority": 12,
-      "passes": true,
-      "notes": "Completed in iteration 12. Added verify_jwt() to db.py, CurrentUser model, get_current_user and get_current_user_optional FastAPI dependencies."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-013",
-      "title": "Stripe Checkout Session Creation",
-      "description": "As a logged-in user, I want to pay for a full translation so I can get the complete video.",
+      "title": "Add Audio Separation to cloud_translate.py",
+      "description": "As a developer, I need cloud_translate.py to separate vocals from background.",
       "acceptanceCriteria": [
-        "POST /checkout/create accepts preview_id",
-        "Requires authentication",
-        "Creates translation_job record with price_cents",
-        "Creates Stripe Checkout Session with correct amount",
-        "Returns checkout_url for redirect",
+        "Import and use AudioSeparator class",
+        "Separate audio after download",
+        "Store vocals.wav and background.wav in job directory",
+        "Use vocals for transcription",
         "Typecheck passes"
       ],
       "priority": 13,
-      "passes": true,
-      "notes": "Completed in iteration 13. Added stripe to requirements, create_stripe_checkout_session() to db.py, POST /checkout/create endpoint with auth."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-014",
-      "title": "Stripe Webhook Handler",
-      "description": "As a developer, I need to handle Stripe webhooks to confirm payment and start processing.",
+      "title": "Add Speaker Diarization to cloud_translate.py",
+      "description": "As a developer, I need cloud_translate.py to identify speakers for voice matching.",
       "acceptanceCriteria": [
-        "POST /webhook/stripe receives Stripe events",
-        "Verifies webhook signature",
-        "On checkout.session.completed: updates translation_job payment_status to paid",
-        "On payment success: triggers full translation processing",
+        "Import and use SpeakerDiarizer class",
+        "Run diarization on vocals audio",
+        "Extract per-speaker voice samples",
+        "Upload voice samples to Supabase Storage for Replicate API",
         "Typecheck passes"
       ],
       "priority": 14,
-      "passes": true,
-      "notes": "Completed in iteration 14. Added POST /webhook/stripe endpoint with signature verification, checkout.session.completed handler, and process_full_translation trigger."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-015",
-      "title": "Full Translation Processing",
-      "description": "As a developer, I need to process full video translations after payment confirmation.",
+      "title": "Add Multi-Speaker Synthesis to cloud_translate.py",
+      "description": "As a developer, I need cloud_translate.py to synthesize with speaker-matched voices.",
       "acceptanceCriteria": [
-        "process_full_translation function created",
-        "Reuses preview transcription for first 60 seconds if available",
-        "Processes entire video duration",
-        "Uploads output to Supabase Storage",
-        "Updates translation_job status and output path",
+        "Match each segment to speaker via diarization",
+        "Use correct voice sample URL for each segment",
+        "Call Replicate API with per-segment voice",
+        "Combine segments without time-stretching",
         "Typecheck passes"
       ],
       "priority": 15,
-      "passes": true,
-      "notes": "Completed in iteration 15. Full pipeline implemented: download -> transcribe -> translate -> TTS -> merge -> upload. Added upload_translation_to_storage() and get_translation_signed_url() to db.py."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-016",
-      "title": "Translation Job Status Endpoint",
-      "description": "As a user, I want to check the status of my paid translation.",
+      "title": "Add Background Mixing and Subtitles to cloud_translate.py",
+      "description": "As a developer, I need cloud_translate.py to mix background audio and embed subtitles.",
       "acceptanceCriteria": [
-        "GET /jobs/{job_id} returns status, progress, stage",
-        "Requires authentication",
-        "Only returns jobs owned by current user",
-        "When completed, returns download_url",
+        "Mix translated speech with original background",
+        "Generate SRT subtitles from translated segments",
+        "Embed subtitles in final video",
+        "Update job status and output path",
         "Typecheck passes"
       ],
       "priority": 16,
-      "passes": true,
-      "notes": "Completed in iteration 16. Added GET /jobs/{job_id} endpoint with auth, ownership verification, download_url on completion."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-017",
-      "title": "Translation Download Endpoint",
-      "description": "As a user, I want to download my completed translation.",
+      "title": "Update Requirements Files",
+      "description": "As a developer, I need to add new dependencies to requirements files.",
       "acceptanceCriteria": [
-        "GET /jobs/{job_id}/download returns signed URL",
-        "Requires authentication",
-        "Verifies job belongs to current user",
-        "Verifies job status is completed",
-        "URL expires after 24 hours",
+        "Add demucs>=4.0.0 to requirements.txt",
+        "Add pyannote.audio>=3.1.0 to requirements.txt",
+        "Add demucs>=4.0.0 to requirements-cloud.txt",
+        "Document HUGGINGFACE_TOKEN in SETUP.md",
         "Typecheck passes"
       ],
       "priority": 17,
-      "passes": true,
-      "notes": "Completed in iteration 17. Added GET /jobs/{job_id}/download endpoint with TranslationDownloadResponse model, auth, ownership verification, and 24h signed URL expiration."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-018",
-      "title": "User Jobs List Endpoint",
-      "description": "As a user, I want to see all my translation jobs in one place.",
+      "title": "End-to-End Testing - Local",
+      "description": "As a developer, I need to verify the complete local translation pipeline works correctly.",
       "acceptanceCriteria": [
-        "GET /jobs returns list of user's translation jobs",
-        "Requires authentication",
-        "Includes status, video_title, created_at, download availability",
-        "Ordered by created_at descending",
+        "Translate a video with male and female speakers",
+        "Verify different voices used for different speakers",
+        "Verify background music is preserved at lower volume",
+        "Verify subtitles can be toggled on/off in VLC",
+        "Verify no echo/reverb artifacts in output audio",
         "Typecheck passes"
       ],
       "priority": 18,
-      "passes": true,
-      "notes": "Completed in iteration 18. Added GET /jobs endpoint with UserJobListItem model, auth required, ordered by created_at desc."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-019",
-      "title": "IP-Based Rate Limiting",
-      "description": "As a developer, I need to prevent preview abuse by limiting requests per IP.",
+      "title": "End-to-End Testing - Cloud",
+      "description": "As a developer, I need to verify the complete cloud translation pipeline works correctly.",
       "acceptanceCriteria": [
-        "Rate limiting middleware added",
-        "Limits preview requests to 5 per hour per IP",
-        "Returns 429 Too Many Requests when exceeded",
-        "Does not affect authenticated users paid jobs",
+        "Run cloud_translate.py with test video",
+        "Verify speaker voice matching works",
+        "Verify background audio preserved",
+        "Verify subtitles embedded correctly",
+        "Verify in browser using MCP Toolkit browser tools",
         "Typecheck passes"
       ],
       "priority": 19,
-      "passes": true,
-      "notes": "Completed in iteration 19. Sliding window rate limiter for /preview endpoint. Configurable via PREVIEW_RATE_LIMIT and PREVIEW_RATE_WINDOW env vars."
-    },
-    {
-      "id": "US-020",
-      "title": "Frontend - Video Info Display",
-      "description": "As a user, I want to see video details after pasting a URL.",
-      "acceptanceCriteria": [
-        "Input field for video URL",
-        "On paste/submit, calls /video-info endpoint",
-        "Displays: thumbnail, title, duration, price quote",
-        "Shows Preview FREE button",
-        "Typecheck passes",
-        "Verify in browser using MCP Toolkit browser tools"
-      ],
-      "priority": 20,
-      "passes": true,
-      "notes": "Completed in iteration 20. Added video info display with thumbnail, title, duration, price. Preview FREE button in language panel."
-    },
-    {
-      "id": "US-021",
-      "title": "Frontend - Language Selection",
-      "description": "As a user, I want to select a target language for translation.",
-      "acceptanceCriteria": [
-        "Language dropdown/grid shown after video info loaded",
-        "Shows all supported languages",
-        "Selection required before preview can start",
-        "Typecheck passes",
-        "Verify in browser using MCP Toolkit browser tools"
-      ],
-      "priority": 21,
-      "passes": true,
-      "notes": "Completed in iteration 21. Language selection was already implemented as part of US-020. Language grid with 23 languages, flag icons, amber selection highlight, and preview button state management all functional."
-    },
-    {
-      "id": "US-022",
-      "title": "Frontend - Preview Progress",
-      "description": "As a user, I want to see preview processing progress.",
-      "acceptanceCriteria": [
-        "Progress bar shows current stage and percentage",
-        "Polls /preview/{id} endpoint every 2 seconds",
-        "Updates UI in real-time",
-        "Shows error message if preview fails",
-        "Typecheck passes",
-        "Verify in browser using MCP Toolkit browser tools"
-      ],
-      "priority": 22,
-      "passes": true,
-      "notes": "Completed in iteration 22. Added session ID generation, POST /preview API call, polling every 2 seconds, progress bar updates, and error handling."
-    },
-    {
-      "id": "US-023",
-      "title": "Frontend - Preview Player",
-      "description": "As a user, I want to watch my preview video and see the price for full translation.",
-      "acceptanceCriteria": [
-        "Video player shows 60-second preview",
-        "Price displayed prominently: Full video: $X.XX",
-        "Get Full Video CTA button",
-        "Button triggers auth flow if not logged in",
-        "Typecheck passes",
-        "Verify in browser using MCP Toolkit browser tools"
-      ],
-      "priority": 23,
-      "passes": true,
-      "notes": "Completed in iteration 23. Added preview player panel with video element, 60 SEC PREVIEW badge, prominent price display, Get Full Video CTA button, and auth flow trigger (showAuthModal placeholder for US-024)."
-    },
-    {
-      "id": "US-024",
-      "title": "Frontend - Auth Modal",
-      "description": "As a user, I want to create an account or log in to purchase.",
-      "acceptanceCriteria": [
-        "Modal appears when Get Full Video clicked (if not logged in)",
-        "Shows Google OAuth button (primary)",
-        "Shows email/password form (secondary)",
-        "Toggle between signup and login",
-        "ToS checkbox required for signup",
-        "Typecheck passes",
-        "Verify in browser using MCP Toolkit browser tools"
-      ],
-      "priority": 24,
-      "passes": true,
-      "notes": "Completed in iteration 24. Auth modal with Google OAuth (primary), email/password form (secondary), signup/login toggle, ToS checkbox for signup, password validation, sessionStorage persistence."
-    },
-    {
-      "id": "US-025",
-      "title": "Frontend - Checkout Redirect",
-      "description": "As a logged-in user, I want to be redirected to Stripe to complete payment.",
-      "acceptanceCriteria": [
-        "Get Full Video calls /checkout/create when logged in",
-        "Redirects to Stripe Checkout URL",
-        "Shows loading state during redirect",
-        "Handles errors gracefully",
-        "Typecheck passes",
-        "Verify in browser using MCP Toolkit browser tools"
-      ],
-      "priority": 25,
-      "passes": true,
-      "notes": "Completed in iteration 25. Implemented proceedToCheckout() with /checkout/create API call, Bearer token auth, loading state, and Stripe redirect."
-    },
-    {
-      "id": "US-026",
-      "title": "Frontend - Payment Success Page",
-      "description": "As a user, I want to see confirmation after successful payment.",
-      "acceptanceCriteria": [
-        "/success page shows Payment successful!",
-        "Shows translation job status",
-        "Auto-redirects to job progress view",
-        "Handles Stripe redirect parameters",
-        "Typecheck passes",
-        "Verify in browser using MCP Toolkit browser tools"
-      ],
-      "priority": 26,
-      "passes": true,
-      "notes": "Completed in iteration 26. Created /static/success.html with payment confirmation UI, /success route with query param passthrough, auto-redirect countdown."
-    },
-    {
-      "id": "US-027",
-      "title": "Frontend - Job Progress View",
-      "description": "As a user, I want to see my full translation progress after payment.",
-      "acceptanceCriteria": [
-        "Shows processing stages and progress",
-        "Polls /jobs/{id} endpoint",
-        "When complete, shows download button",
-        "Typecheck passes",
-        "Verify in browser using MCP Toolkit browser tools"
-      ],
-      "priority": 27,
-      "passes": true,
-      "notes": "Completed in iteration 27. Hash routing for #job/{jobId}, job progress panel with VU meter, polling /jobs/{id} every 2s, download button on completion."
-    },
-    {
-      "id": "US-028",
-      "title": "Frontend - User Dashboard",
-      "description": "As a logged-in user, I want to see all my past translations.",
-      "acceptanceCriteria": [
-        "/dashboard page lists all user's jobs",
-        "Shows: video title, language, status, date",
-        "Download button for completed jobs",
-        "Empty state for new users",
-        "Typecheck passes",
-        "Verify in browser using MCP Toolkit browser tools"
-      ],
-      "priority": 28,
-      "passes": true,
-      "notes": "Completed in iteration 28. Dashboard panel with hash routing #dashboard, user nav bar, jobs list with status/language/date, download buttons for completed jobs, empty state for new users."
+      "passes": false,
+      "notes": ""
     }
   ]
 }
