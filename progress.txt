@@ -633,3 +633,27 @@ The HUGGINGFACE_TOKEN environment variable is not set in .env. This token is req
 - pyannote models require explicit license acceptance on Hugging Face
 - Future PRDs should include "environment setup verification" as a pre-requisite story
 
+
+## US-018: End-to-End Testing - Local - STILL BLOCKED (iteration 19)
+
+**Date:** 2026-01-15 (iteration 19)
+**Status:** BLOCKED - HUGGINGFACE_TOKEN still not configured
+
+**Re-verification:**
+- Checked .env file - HUGGINGFACE_TOKEN is still not present
+- US-018 and US-019 both require speaker diarization for voice matching
+- Both stories remain blocked until the token is configured
+
+**Action required by human:**
+1. Create Hugging Face account (if needed): https://huggingface.co/join
+2. Generate access token: https://huggingface.co/settings/tokens
+3. Accept pyannote model licenses:
+   - https://huggingface.co/pyannote/speaker-diarization-3.1
+   - https://huggingface.co/pyannote/segmentation-3.0
+4. Add to .env file: HUGGINGFACE_TOKEN=hf_your_token_here
+5. Re-run Ralph to continue
+
+**Remaining stories:**
+- US-018: End-to-End Testing - Local (BLOCKED)
+- US-019: End-to-End Testing - Cloud (BLOCKED - same token required)
+
