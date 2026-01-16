@@ -46,3 +46,25 @@
 - AudioSeparator was already fully implemented in US-001, this story just needed requirements update
 - Type annotations verified via inspect.signature - tuple[np.ndarray, np.ndarray, int]
 
+
+## US-003: Integrate pyannote.audio for Speaker Diarization - COMPLETE
+
+**Date:** 2026-01-15 23:15
+**Files changed:**
+- requirements.txt (added pyannote.audio>=3.1.0)
+
+**Implementation notes:**
+- Added pyannote.audio>=3.1.0 dependency to requirements.txt
+- SpeakerDiarizer class (from US-001) already implements all pyannote functionality:
+  - Uses pyannote/speaker-diarization-3.1 model via lazy loading
+  - diarize() returns list of segment dicts with speaker, start, end, duration
+  - get_speaker_segments() groups segments by speaker ID into dict
+  - Supports HUGGINGFACE_TOKEN via constructor param or env var
+  - Works on both GPU and CPU with auto-detection
+
+**Learnings:**
+- US-001 already implemented the full SpeakerDiarizer - this story just needed the requirements.txt update
+- Similar pattern to US-002 where the implementation was ahead of the story
+- Python syntax validation via py_compile works well when mypy isn't available
+- Type annotations validated via AST parsing
+
