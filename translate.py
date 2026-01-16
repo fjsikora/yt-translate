@@ -493,6 +493,163 @@ def synthesize_segments(segments: list[dict], voice_sample: Path, lang_code: str
     return output_path
 
 
+def synthesize_segments_multi_speaker(
+    segments: list[dict],
+    diarization_segments: list[dict],
+    speaker_samples: dict[str, Path],
+    lang_code: str,
+    total_duration: float,
+    tracker: ProgressTracker,
+    update_fn: Callable,
+) -> Path:
+    """Generate speech for each segment using speaker-matched voice samples.
+
+    Maps each transcription segment to its speaker via diarization timestamps,
+    then uses the appropriate voice sample for Chatterbox generation.
+
+    Audio plays at natural 1x speed. Segment start times are adjusted to prevent
+    overlap - if a segment hasn't finished, the next one waits for it to complete.
+
+    Args:
+        segments: Translated text segments with start/end times
+        diarization_segments: Speaker diarization results with speaker labels
+        speaker_samples: Dict mapping speaker ID to voice sample path
+        lang_code: Target language code for Chatterbox
+        total_duration: Original audio duration in seconds
+        tracker: Progress tracker for UI updates
+        update_fn: Callback to update the UI
+
+    Returns:
+        Path to the generated audio file
+    """
+    import numpy as np
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device_name = "GPU" if device == "cuda" else "CPU"
+
+    tracker.update_detail("synthesize", f"Loading Chatterbox multilingual model on {device_name}...")
+    update_fn()
+
+    from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+
+    model = ChatterboxMultilingualTTS.from_pretrained(device=device)
+    sample_rate = model.sr
+
+    # Get fallback sample (first available)
+    if not speaker_samples:
+        raise ValueError("No speaker samples available for synthesis")
+
+    fallback_speaker = next(iter(speaker_samples))
+    fallback_sample = speaker_samples[fallback_speaker]
+
+    tracker.update_detail("synthesize", f"Found {len(speaker_samples)} speaker(s), matching to segments...")
+    update_fn()
+
+    def match_segment_to_speaker(seg_start: float, seg_end: float) -> str:
+        """Find the speaker with maximum overlap for a given segment time range."""
+        best_speaker = fallback_speaker
+        best_overlap = 0.0
+
+        for diar_seg in diarization_segments:
+            # Calculate overlap between transcription segment and diarization segment
+            overlap_start = max(seg_start, diar_seg["start"])
+            overlap_end = min(seg_end, diar_seg["end"])
+            overlap = max(0.0, overlap_end - overlap_start)
+
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_speaker = diar_seg["speaker"]
+
+        return best_speaker
+
+    # Process each segment and collect audio with original start times
+    total_segments = len(segments)
+    segment_audios: list[tuple[float, np.ndarray]] = []  # (original_start, audio)
+
+    for i, seg in enumerate(segments):
+        text = seg["translated_text"]
+
+        if not text:
+            # Skip empty segments entirely
+            continue
+
+        # Match this segment to a speaker
+        speaker = match_segment_to_speaker(seg["start"], seg["end"])
+
+        # Get voice sample for this speaker (with fallback)
+        voice_sample = speaker_samples.get(speaker, fallback_sample)
+
+        tracker.update_detail(
+            "synthesize",
+            f"Segment {i+1}/{total_segments} ({speaker}): {text[:25]}..."
+        )
+        update_fn()
+
+        # Generate speech for this segment at natural speed (no time-stretching)
+        wav = model.generate(
+            text,
+            audio_prompt_path=str(voice_sample),
+            language_id=lang_code,
+        )
+
+        # Convert to numpy
+        audio_np = wav.squeeze().cpu().numpy()
+        segment_audios.append((seg["start"], audio_np))
+
+    # Combine all segments with adjusted timing to prevent overlap
+    # Each segment starts at max(original_start, previous_segment_end)
+    tracker.update_detail("synthesize", "Combining segments (natural timing, no stretching)...")
+    update_fn()
+
+    # First pass: calculate actual positions to determine total length
+    positioned_audios: list[tuple[float, np.ndarray]] = []
+    current_end_time = 0.0
+
+    for original_start, audio in segment_audios:
+        audio_duration = len(audio) / sample_rate
+
+        # Start at the later of: original timestamp or when previous segment ends
+        actual_start = max(original_start, current_end_time)
+        positioned_audios.append((actual_start, audio))
+
+        # Update end time for next segment
+        current_end_time = actual_start + audio_duration
+
+    # Calculate actual output length (may be longer than original video)
+    actual_total_duration = max(total_duration, current_end_time)
+    output_length = int(actual_total_duration * sample_rate)
+    output_audio = np.zeros(output_length)
+
+    # Second pass: place audio at calculated positions
+    for start_time, audio in positioned_audios:
+        start_sample = int(start_time * sample_rate)
+        end_sample = start_sample + len(audio)
+
+        # Ensure we don't overflow (shouldn't happen with calculated length)
+        if end_sample > output_length:
+            audio = audio[:output_length - start_sample]
+
+        # Place audio (no overlap possible with our timing logic)
+        output_audio[start_sample:start_sample + len(audio)] = audio
+
+    # Normalize to prevent clipping
+    max_val = np.max(np.abs(output_audio))
+    if max_val > 0.99:
+        output_audio = output_audio * 0.99 / max_val
+
+    # Save the combined audio
+    output_path = OUTPUT_DIR / "translated_audio.wav"
+    import scipy.io.wavfile as wav
+    audio_int16 = (output_audio * 32767).astype(np.int16)
+    wav.write(str(output_path), sample_rate, audio_int16)
+
+    audio_duration = len(output_audio) / sample_rate
+    tracker.update_detail("synthesize", f"Saved {audio_duration:.1f}s audio ({len(speaker_samples)} speakers)")
+    update_fn()
+
+    return output_path
+
+
 def merge_audio_video(video_path: Path, audio_path: Path, output_name: str,
                       tracker: ProgressTracker, update_fn: Callable) -> Path:
     """Merge translated audio with original video."""
