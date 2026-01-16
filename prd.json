@@ -93,8 +93,8 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 6. Created generic upload_to_storage function. All 3 upload functions now use it as wrappers. Consolidated VOICE_SAMPLES_BUCKET constant. Net reduction of ~48 lines."
     },
     {
       "id": "US-007",

@@ -113,3 +113,25 @@
 - The `match_segment_to_speaker` closure was NOT extracted as it depends on function-local variables (fallback_speaker, diarization_segments)
 - These helpers will be useful for US-009 (unit tests for audio helpers)
 
+## US-006: Consolidate Storage Upload Functions - COMPLETE
+
+**Date:** 2026-01-16
+**Files changed:**
+- db.py
+
+**Implementation notes:**
+- Created generic `upload_to_storage(bucket, job_id, file_path, filename, content_type) -> str` function
+- Refactored 3 upload functions to use the generic function as wrappers:
+  - `upload_preview_to_storage(preview_id, file_path)` -> calls generic with PREVIEW_BUCKET, "preview.mp4", "video/mp4"
+  - `upload_translation_to_storage(translation_job_id, file_path)` -> calls generic with TRANSLATIONS_BUCKET, "translation.mp4", "video/mp4"
+  - `upload_voice_sample(job_id, file_path, speaker_id)` -> calls generic with VOICE_SAMPLES_BUCKET, "{speaker_id}.wav", "audio/wav"
+- Consolidated VOICE_SAMPLES_BUCKET constant with other bucket constants at top of storage section
+- Original function signatures preserved exactly for backwards compatibility
+- Net change: +59 lines added, -48 lines removed (11 net lines added but DRY benefits outweigh)
+
+**Learnings:**
+- The generic function consolidates: client initialization, path construction, file reading, upload call, and return value construction
+- Wrapper functions are very thin - just 5-7 lines each with no logic
+- US-007 (Consolidate Signed URL Functions) follows a similar pattern and will be straightforward
+- Pre-existing mypy errors in db.py (19 errors) are Supabase SDK type issues, not related to this change
+
