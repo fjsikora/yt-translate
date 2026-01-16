@@ -650,6 +650,64 @@ def synthesize_segments_multi_speaker(
     return output_path
 
 
+def generate_srt(segments: list[dict], output_path: Optional[Path] = None) -> Path:
+    """Generate SRT subtitle file from translated segments.
+
+    Args:
+        segments: List of translated segments with start, end, and translated_text fields
+        output_path: Output path for the SRT file. If None, uses OUTPUT_DIR/"subtitles.srt"
+
+    Returns:
+        Path to the generated SRT file
+
+    SRT format:
+        1
+        00:00:00,000 --> 00:00:05,123
+        Subtitle text here
+
+        2
+        00:00:05,500 --> 00:00:10,000
+        Next subtitle text
+    """
+    if output_path is None:
+        output_path = OUTPUT_DIR / "subtitles.srt"
+
+    def format_timestamp(seconds: float) -> str:
+        """Convert seconds to SRT timestamp format: HH:MM:SS,mmm"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        millis = int((seconds % 1) * 1000)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+    srt_lines: list[str] = []
+
+    subtitle_index = 1
+    for seg in segments:
+        text = seg.get("translated_text", "").strip()
+
+        # Skip empty segments
+        if not text:
+            continue
+
+        start_time = seg.get("start", 0.0)
+        end_time = seg.get("end", 0.0)
+
+        # Add SRT entry
+        srt_lines.append(str(subtitle_index))
+        srt_lines.append(f"{format_timestamp(start_time)} --> {format_timestamp(end_time)}")
+        srt_lines.append(text)
+        srt_lines.append("")  # Blank line between entries
+
+        subtitle_index += 1
+
+    # Write with UTF-8 encoding for Unicode support
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(srt_lines))
+
+    return output_path
+
+
 def mix_audio_with_background(
     speech_path: Path,
     background_path: Path,
