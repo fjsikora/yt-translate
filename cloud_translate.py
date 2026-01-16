@@ -53,6 +53,20 @@ PREVIEW_DURATION_SECONDS = int(os.getenv("PREVIEW_DURATION_SECONDS", "60"))  # F
 PREVIEW_RATE_LIMIT = int(os.getenv("PREVIEW_RATE_LIMIT", "5"))  # Max preview requests per window
 PREVIEW_RATE_WINDOW = int(os.getenv("PREVIEW_RATE_WINDOW", "3600"))  # Window in seconds (1 hour)
 
+# Proxy configuration for yt-dlp (to bypass YouTube bot detection)
+OXYLABS_PROXY = os.getenv("OXYLABS_PROXY")  # Format: http://user:pass@pr.oxylabs.io:7777
+
+
+def get_ytdlp_opts(extra_opts: dict = None) -> dict:
+    """Get yt-dlp options with optional proxy support."""
+    opts = {'quiet': True, 'no_warnings': True}
+    if OXYLABS_PROXY:
+        opts['proxy'] = OXYLABS_PROXY
+    if extra_opts:
+        opts.update(extra_opts)
+    return opts
+
+
 # In-memory rate limiting storage (use Redis for production with multiple instances)
 # Structure: {ip_address: [timestamp1, timestamp2, ...]}
 preview_rate_limits: dict[str, list[float]] = defaultdict(list)
@@ -270,7 +284,7 @@ async def download_video(
     job_dir.mkdir(parents=True, exist_ok=True)
 
     # Get video info first
-    with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+    with yt_dlp.YoutubeDL(get_ytdlp_opts()) as ydl:
         info = ydl.extract_info(url, download=False)
         video_id = info['id']
         title = info.get('title', video_id)
@@ -287,13 +301,11 @@ async def download_video(
     audio_path = job_dir / f"{video_id}.wav"
 
     # Download video
-    ydl_opts = {
+    ydl_opts = get_ytdlp_opts({
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': str(job_dir / f"{video_id}.%(ext)s"),
-        'quiet': True,
-        'no_warnings': True,
         'merge_output_format': 'mp4',
-    }
+    })
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
@@ -1272,7 +1284,7 @@ async def get_video_info(request: VideoInfoRequest):
     and calculates a price quote for full translation.
     """
     try:
-        with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+        with yt_dlp.YoutubeDL(get_ytdlp_opts()) as ydl:
             info = ydl.extract_info(request.video_url, download=False)
 
             if info is None:
@@ -1489,7 +1501,7 @@ async def create_preview(
 
     # Validate video URL by attempting to extract info
     try:
-        with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+        with yt_dlp.YoutubeDL(get_ytdlp_opts()) as ydl:
             info = ydl.extract_info(preview_request.video_url, download=False)
             if info is None:
                 raise HTTPException(
@@ -1615,7 +1627,7 @@ async def get_preview_status(
         video_url = preview_job.get("video_url")
         if video_url:
             try:
-                with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+                with yt_dlp.YoutubeDL(get_ytdlp_opts()) as ydl:
                     info = ydl.extract_info(video_url, download=False)
                     if info:
                         duration = info.get('duration', 0)
@@ -2107,7 +2119,7 @@ async def create_checkout(
 
     # Extract video info for price calculation
     try:
-        with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+        with yt_dlp.YoutubeDL(get_ytdlp_opts()) as ydl:
             info = ydl.extract_info(video_url, download=False)
             if not info:
                 raise HTTPException(
