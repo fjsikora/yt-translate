@@ -138,8 +138,8 @@
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 9 - merge_audio_video() updated with subtitle embedding via mov_text codec"
     },
     {
       "id": "US-010",

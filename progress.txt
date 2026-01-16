@@ -216,3 +216,39 @@ Next subtitle
 - Empty segments should be skipped to avoid blank subtitles
 - Floating point to milliseconds conversion may have minor precision variance (122 vs 123ms for 0.123s)
 
+
+## US-009: Embed Subtitles in Final Video - COMPLETE
+
+**Date:** 2026-01-15 (iteration 9)
+**Files changed:**
+- translate.py (modified merge_audio_video function, added ISO_639_1_TO_639_2 mapping, added get_iso_639_2_code function)
+
+**Implementation notes:**
+- Updated merge_audio_video() to accept optional subtitle_path and subtitle_lang parameters
+- Subtitles embedded as soft subs (toggleable in video player) using mov_text codec
+- Added ISO_639_1_TO_639_2 mapping for language code conversion (22 languages)
+- Added get_iso_639_2_code() helper function for 2-letter to 3-letter ISO code conversion
+- ffmpeg command dynamically builds based on whether subtitles are provided
+
+**Key ffmpeg options for subtitle embedding:**
+```
+-i subtitle.srt        # Third input for subtitles
+-map 2:0               # Map subtitle stream
+-c:s mov_text          # Use mov_text codec (MP4 compatible soft subs)
+-metadata:s:s:0 language=eng  # Set subtitle language metadata
+```
+
+**Function signature:**
+```python
+def merge_audio_video(video_path: Path, audio_path: Path, output_name: str,
+                      tracker: ProgressTracker, update_fn: Callable,
+                      subtitle_path: Optional[Path] = None,
+                      subtitle_lang: str = "eng") -> Path
+```
+
+**Learnings:**
+- mov_text codec is the standard for MP4 soft subtitles (toggleable in VLC, QuickTime, etc.)
+- ffmpeg uses ISO 639-2 (3-letter) codes for language metadata, but our app uses ISO 639-1 (2-letter)
+- The -metadata:s:s:0 option sets metadata for stream 0 of the subtitle track
+- Backward compatibility maintained - existing callers don't need to change
+
