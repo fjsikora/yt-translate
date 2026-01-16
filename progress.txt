@@ -207,3 +207,25 @@
 - WAV file format details: 16-bit uses 32767 normalization, 32-bit uses 2147483647
 - Writing good tests for audio involves testing: format handling, channel conversion, value range normalization, and sample rate math
 
+## US-010: Add Unit Tests for Language Module - COMPLETE
+
+**Date:** 2026-01-16
+**Files changed:**
+- tests/test_languages.py (NEW)
+
+**Implementation notes:**
+- Created `test_languages.py` with 24 comprehensive tests organized in 5 test classes:
+  - `TestSupportedLanguagesConsistency`: 4 tests verifying all SUPPORTED_LANGUAGES keys exist in GOOGLE_LANG_CODES, ISO_639_1_TO_639_2, and LANG_NAMES, plus name consistency
+  - `TestIso639Codes`: 5 tests verifying all language codes in all dictionaries are valid ISO 639-1 codes, and ISO 639-2 values are 3 letters
+  - `TestInvertedMappings`: 2 tests for SUPPORTED_LANGUAGES_BY_NAME and GOOGLE_LANG_CODES_BY_NAME correctness
+  - `TestHelperFunctions`: 10 tests for get_language_name, get_language_code, get_google_code, get_iso_639_2_code
+  - `TestDataIntegrity`: 3 tests for expected language count, key languages present, and Chinese zh-CN mapping
+- Tests include a VALID_ISO_639_1_CODES constant for validation (38 codes covering all used in the project)
+- All 24 tests pass, typecheck passes
+
+**Learnings:**
+- The languages.py module is well-structured with consistent key conventions
+- ISO 639-1 is the 2-letter standard (en, es, zh), ISO 639-2 is the 3-letter standard (eng, spa, chi)
+- Testing consistency between related dictionaries catches potential drift when adding new languages
+- Helper function tests verify edge cases: case insensitivity, unknown values, fallback behavior
+
