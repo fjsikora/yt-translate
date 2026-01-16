@@ -75,6 +75,34 @@ GOOGLE_LANG_CODES = {
     "sw": "sw", "sv": "sv", "tr": "tr",
 }
 
+# ISO 639-1 (2-letter) to ISO 639-2 (3-letter) language code mapping
+# Used for ffmpeg subtitle metadata which requires 3-letter codes
+ISO_639_1_TO_639_2 = {
+    "ar": "ara",
+    "zh": "chi",
+    "da": "dan",
+    "nl": "dut",
+    "en": "eng",
+    "fi": "fin",
+    "fr": "fre",
+    "de": "ger",
+    "el": "gre",
+    "he": "heb",
+    "hi": "hin",
+    "it": "ita",
+    "ja": "jpn",
+    "ko": "kor",
+    "ms": "may",
+    "no": "nor",
+    "pl": "pol",
+    "pt": "por",
+    "ru": "rus",
+    "es": "spa",
+    "sw": "swa",
+    "sv": "swe",
+    "tr": "tur",
+}
+
 # In-memory job storage (use Redis for production)
 jobs: dict[str, dict] = {}
 
@@ -856,32 +884,202 @@ async def synthesize_segments_multi_speaker(
     return output_audio_path
 
 
-async def merge_audio_video(video_path: Path, audio_path: Path, job_id: str, title: str) -> Path:
-    """Merge translated audio with original video."""
+def get_iso_639_2_code(lang_code: str) -> str:
+    """
+    Convert ISO 639-1 (2-letter) language code to ISO 639-2 (3-letter) code.
+
+    Args:
+        lang_code: 2-letter or 3-letter language code
+
+    Returns:
+        3-letter ISO 639-2 language code for ffmpeg metadata
+    """
+    if len(lang_code) == 3:
+        return lang_code
+    return ISO_639_1_TO_639_2.get(lang_code, "eng")
+
+
+def generate_srt(segments: list[dict], output_path: Optional[Path] = None, job_id: Optional[str] = None) -> Path:
+    """
+    Generate SRT subtitle file from translated segments.
+
+    Args:
+        segments: List of translated segments with start, end, and translated_text fields
+        output_path: Output path for the SRT file. If None, uses job_dir/"subtitles.srt"
+        job_id: Job ID for determining output directory (required if output_path is None)
+
+    Returns:
+        Path to the generated SRT file
+
+    SRT format:
+        1
+        00:00:00,000 --> 00:00:05,123
+        Subtitle text here
+
+        2
+        00:00:05,500 --> 00:00:10,000
+        Next subtitle text
+    """
+    if output_path is None:
+        if job_id is None:
+            raise ValueError("Either output_path or job_id must be provided")
+        output_path = OUTPUT_DIR / job_id / "subtitles.srt"
+
+    def format_timestamp(seconds: float) -> str:
+        """Convert seconds to SRT timestamp format: HH:MM:SS,mmm"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        millis = int((seconds % 1) * 1000)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+    srt_lines: list[str] = []
+
+    subtitle_index = 1
+    for seg in segments:
+        text = seg.get("translated_text", "").strip()
+
+        # Skip empty segments
+        if not text:
+            continue
+
+        start_time = seg.get("start", 0.0)
+        end_time = seg.get("end", 0.0)
+
+        # Add SRT entry
+        srt_lines.append(str(subtitle_index))
+        srt_lines.append(f"{format_timestamp(start_time)} --> {format_timestamp(end_time)}")
+        srt_lines.append(text)
+        srt_lines.append("")  # Blank line between entries
+
+        subtitle_index += 1
+
+    # Write with UTF-8 encoding for Unicode support
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(srt_lines))
+
+    return output_path
+
+
+def mix_audio_with_background(
+    speech_path: Path,
+    background_path: Path,
+    output_path: Optional[Path] = None,
+    background_volume: float = 0.3,
+) -> Path:
+    """
+    Mix translated speech with original background audio using ffmpeg.
+
+    Args:
+        speech_path: Path to the translated speech WAV file (100% volume)
+        background_path: Path to the background audio WAV file
+        output_path: Output path for the mixed audio. If None, uses speech_path directory/"mixed_audio.wav"
+        background_volume: Volume level for background audio (0.0 to 1.0, default 0.3 = 30%)
+
+    Returns:
+        Path to the mixed audio file
+
+    The output duration matches the speech track. If background is shorter,
+    it's padded with silence. If background is longer, it's trimmed.
+    """
+    if output_path is None:
+        output_path = speech_path.parent / "mixed_audio.wav"
+
+    # Clamp background volume to valid range
+    background_volume = max(0.0, min(1.0, background_volume))
+
+    # Use ffmpeg to mix the audio tracks
+    # - First input (speech) at full volume
+    # - Second input (background) at configurable volume
+    # - Output duration matches the speech track (shortest=0 with apad on background)
+    subprocess.run([
+        'ffmpeg',
+        '-i', str(speech_path),
+        '-i', str(background_path),
+        '-filter_complex',
+        f'[1:a]apad,volume={background_volume}[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0',
+        '-ac', '2',  # Stereo output
+        '-y',
+        str(output_path)
+    ], capture_output=True, check=True)
+
+    return output_path
+
+
+async def merge_audio_video(
+    video_path: Path,
+    audio_path: Path,
+    job_id: str,
+    title: str,
+    subtitle_path: Optional[Path] = None,
+    subtitle_lang: str = "eng"
+) -> Path:
+    """
+    Merge translated audio with original video, optionally embedding subtitles.
+
+    Args:
+        video_path: Path to the video file
+        audio_path: Path to the translated audio file
+        job_id: Job ID for progress tracking
+        title: Video title for generating output filename
+        subtitle_path: Optional path to SRT subtitle file
+        subtitle_lang: ISO 639-2 language code for subtitle metadata (default: "eng")
+
+    Returns:
+        Path to the merged output video file
+
+    Subtitles are embedded as soft subs (toggleable, not burned in) using the
+    mov_text codec for MP4 compatibility.
+    """
     update_job(job_id, stage="merge", progress=90)
 
     job_dir = OUTPUT_DIR / job_id
     safe_title = "".join(c for c in title if c.isalnum() or c in " -_")[:40]
     output_path = job_dir / f"{safe_title}_translated.mp4"
 
-    subprocess.run([
-        'ffmpeg',
-        '-i', str(video_path),
-        '-i', str(audio_path),
-        '-c:v', 'copy',
-        '-map', '0:v:0',
-        '-map', '1:a:0',
-        '-shortest',
-        '-y',
-        str(output_path)
-    ], capture_output=True, check=True)
+    # Build ffmpeg command based on whether subtitles are provided
+    if subtitle_path and subtitle_path.exists():
+        # With subtitles: include subtitle input and mapping
+        subprocess.run([
+            'ffmpeg',
+            '-i', str(video_path),
+            '-i', str(audio_path),
+            '-i', str(subtitle_path),
+            '-c:v', 'copy',
+            '-c:a', 'aac',
+            '-c:s', 'mov_text',  # Soft subtitles codec for MP4
+            '-map', '0:v:0',
+            '-map', '1:a:0',
+            '-map', '2:0',
+            '-metadata:s:s:0', f'language={subtitle_lang}',  # Set subtitle language
+            '-shortest',
+            '-y',
+            str(output_path)
+        ], capture_output=True, check=True)
+    else:
+        # Without subtitles: original simple merge
+        subprocess.run([
+            'ffmpeg',
+            '-i', str(video_path),
+            '-i', str(audio_path),
+            '-c:v', 'copy',
+            '-map', '0:v:0',
+            '-map', '1:a:0',
+            '-shortest',
+            '-y',
+            str(output_path)
+        ], capture_output=True, check=True)
 
     update_job(job_id, progress=100)
     return output_path
 
 
 async def process_translation(job_id: str, video_url: str, target_language: str):
-    """Main translation pipeline."""
+    """
+    Main translation pipeline.
+
+    Pipeline: download -> separate -> diarize -> transcribe -> translate -> TTS -> mix -> subtitles -> merge
+    """
     try:
         update_job(job_id, status="processing", progress=0)
 
@@ -917,8 +1115,24 @@ async def process_translation(job_id: str, video_url: str, target_language: str)
             )
             new_audio = await synthesize_speech(translated_text, vocals_path, target_language, job_id)
 
-        # 7. Merge
-        output = await merge_audio_video(video_path, new_audio, job_id, info["title"])
+        # 7. Mix translated speech with original background audio (30% volume)
+        update_job(job_id, stage="mix", progress=86)
+        # Only mix if background_path is different from audio_path (separation succeeded)
+        if background_path != audio_path:
+            mixed_audio = mix_audio_with_background(new_audio, background_path)
+        else:
+            mixed_audio = new_audio
+
+        # 8. Generate SRT subtitles from translated segments
+        update_job(job_id, stage="subtitles", progress=88)
+        subtitle_path = generate_srt(translated_segments, job_id=job_id)
+        subtitle_lang = get_iso_639_2_code(target_language)
+
+        # 9. Merge audio and video with embedded subtitles
+        output = await merge_audio_video(
+            video_path, mixed_audio, job_id, info["title"],
+            subtitle_path=subtitle_path, subtitle_lang=subtitle_lang
+        )
 
         # Update job as completed
         update_job(
@@ -1110,7 +1324,7 @@ async def process_preview(preview_id: str, video_url: str, target_language: str)
     Background task to process a preview translation (first 60 seconds only).
 
     Uses PREVIEW_DURATION_SECONDS to limit the video/audio duration.
-    Pipeline: download -> separate -> diarize -> transcribe -> translate -> TTS -> merge -> upload
+    Pipeline: download -> separate -> diarize -> transcribe -> translate -> TTS -> mix -> subtitles -> merge -> upload
     """
     try:
         # Initialize job tracking in memory for helper functions
@@ -1168,18 +1382,36 @@ async def process_preview(preview_id: str, video_url: str, target_language: str)
                 seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
             )
             new_audio = await synthesize_speech(translated_text, vocals_path, target_language, preview_id)
+        db.update_preview_job(preview_id, progress=82)
+
+        # 7. Mix translated speech with original background audio (30% volume)
+        db.update_preview_job(preview_id, stage="mix", progress=83)
+        # Only mix if background_path is different from audio_path (separation succeeded)
+        if background_path != audio_path:
+            mixed_audio = mix_audio_with_background(new_audio, background_path)
+        else:
+            mixed_audio = new_audio
         db.update_preview_job(preview_id, progress=85)
 
-        # 7. Merge translated audio with video
+        # 8. Generate SRT subtitles from translated segments
+        db.update_preview_job(preview_id, stage="subtitles", progress=86)
+        subtitle_path = generate_srt(translated_segments, job_id=preview_id)
+        subtitle_lang = get_iso_639_2_code(target_language)
+        db.update_preview_job(preview_id, progress=88)
+
+        # 9. Merge translated audio with video (with embedded subtitles)
         db.update_preview_job(preview_id, stage="merge", progress=90)
-        output_path = await merge_audio_video(video_path, new_audio, preview_id, info["title"])
+        output_path = await merge_audio_video(
+            video_path, mixed_audio, preview_id, info["title"],
+            subtitle_path=subtitle_path, subtitle_lang=subtitle_lang
+        )
         db.update_preview_job(preview_id, progress=95)
 
-        # 8. Upload to Supabase Storage
+        # 10. Upload to Supabase Storage
         db.update_preview_job(preview_id, stage="upload", progress=95)
         storage_path = db.upload_preview_to_storage(preview_id, str(output_path))
 
-        # 9. Update job as completed with file path
+        # 11. Update job as completed with file path
         db.update_preview_job(
             preview_id,
             status="completed",
@@ -2239,7 +2471,7 @@ async def process_full_translation(translation_job_id: str, video_url: str, targ
     Background task to process a full video translation after payment.
 
     Processes the entire video duration (no 60-second limit).
-    Pipeline: download -> separate -> diarize -> transcribe -> translate -> TTS -> merge -> upload
+    Pipeline: download -> separate -> diarize -> transcribe -> translate -> TTS -> mix -> subtitles -> merge -> upload
 
     Note: Could optimize by reusing preview transcription for first 60 seconds,
     but for simplicity we re-process the entire video to ensure quality.
@@ -2305,18 +2537,36 @@ async def process_full_translation(translation_job_id: str, video_url: str, targ
                 seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
             )
             new_audio = await synthesize_speech(translated_text, vocals_path, target_language, translation_job_id)
+        db.update_translation_job(translation_job_id, progress=82)
+
+        # 7. Mix translated speech with original background audio (30% volume)
+        db.update_translation_job(translation_job_id, stage="mix", progress=83)
+        # Only mix if background_path is different from audio_path (separation succeeded)
+        if background_path != audio_path:
+            mixed_audio = mix_audio_with_background(new_audio, background_path)
+        else:
+            mixed_audio = new_audio
         db.update_translation_job(translation_job_id, progress=85)
 
-        # 7. Merge translated audio with video
+        # 8. Generate SRT subtitles from translated segments
+        db.update_translation_job(translation_job_id, stage="subtitles", progress=86)
+        subtitle_path = generate_srt(translated_segments, job_id=translation_job_id)
+        subtitle_lang = get_iso_639_2_code(target_language)
+        db.update_translation_job(translation_job_id, progress=88)
+
+        # 9. Merge translated audio with video (with embedded subtitles)
         db.update_translation_job(translation_job_id, stage="merge", progress=90)
-        output_path = await merge_audio_video(video_path, new_audio, translation_job_id, info["title"])
+        output_path = await merge_audio_video(
+            video_path, mixed_audio, translation_job_id, info["title"],
+            subtitle_path=subtitle_path, subtitle_lang=subtitle_lang
+        )
         db.update_translation_job(translation_job_id, progress=95)
 
-        # 8. Upload to Supabase Storage
+        # 10. Upload to Supabase Storage
         db.update_translation_job(translation_job_id, stage="upload", progress=95)
         storage_path = db.upload_translation_to_storage(translation_job_id, str(output_path))
 
-        # 9. Update job as completed with file path
+        # 11. Update job as completed with file path
         db.update_translation_job(
             translation_job_id,
             status="completed",
