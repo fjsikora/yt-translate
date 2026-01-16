@@ -14,6 +14,7 @@ No GPU required - all heavy lifting done by cloud APIs.
 """
 
 import asyncio
+import base64
 import os
 import re
 import subprocess
@@ -38,7 +39,12 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 import db
-from audio_processing import AudioSeparator, SpeakerDiarizer
+
+# Import SpeakerDiarizer with fallback (requires pyannote which may not be installed in cloud)
+try:
+    from audio_processing import SpeakerDiarizer
+except ImportError:
+    SpeakerDiarizer = None
 
 # Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -547,7 +553,7 @@ async def synthesize_speech(
 
 async def separate_audio(audio_path: Path, job_id: str) -> tuple[Path, Path]:
     """
-    Separate audio into vocals and background using Demucs.
+    Separate audio into vocals and background using Replicate's demucs API.
 
     Args:
         audio_path: Path to the input audio file
@@ -561,14 +567,38 @@ async def separate_audio(audio_path: Path, job_id: str) -> tuple[Path, Path]:
     job_dir = OUTPUT_DIR / job_id
 
     try:
-        separator = AudioSeparator()
-        vocals, background, sample_rate = separator.separate(audio_path)
+        # Convert audio to base64 data URI for Replicate
+        with open(audio_path, "rb") as f:
+            audio_data = base64.b64encode(f.read()).decode("utf-8")
+
+        # Determine mime type
+        suffix = audio_path.suffix.lower()
+        mime_type = "audio/wav" if suffix == ".wav" else "audio/mpeg"
+        data_uri = f"data:{mime_type};base64,{audio_data}"
+
+        # Call Replicate demucs API
+        output = replicate.run(
+            "cjwbw/demucs:25a173108cff36ef9f80f854c162d01df9e6528be175794b81571f6e7c5d5f2b",
+            input={
+                "audio": data_uri,
+                "output_format": "wav",
+            }
+        )
 
         update_job(job_id, progress=28)
 
-        vocals_path, background_path = separator.save_separated(
-            vocals, background, sample_rate, job_dir
-        )
+        # Download vocals and other (background) stems
+        vocals_path = job_dir / "vocals.wav"
+        background_path = job_dir / "background.wav"
+
+        async with httpx.AsyncClient() as client:
+            # Download vocals
+            vocals_response = await client.get(output["vocals"])
+            vocals_path.write_bytes(vocals_response.content)
+
+            # Download "other" as background
+            other_response = await client.get(output["other"])
+            background_path.write_bytes(other_response.content)
 
         update_job(job_id, progress=30)
 
@@ -610,6 +640,11 @@ async def diarize_speakers(
     speaker_voice_urls: dict[str, str] = {}
 
     try:
+        # Check if SpeakerDiarizer is available (requires pyannote)
+        if SpeakerDiarizer is None:
+            print(f"Warning: SpeakerDiarizer not available (pyannote not installed)")
+            return [], {}
+
         # Initialize diarizer
         diarizer = SpeakerDiarizer()
 
