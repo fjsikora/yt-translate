@@ -315,7 +315,7 @@ async def download_video(
 
     # Download video
     ydl_opts = get_ytdlp_opts({
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'format': 'bestvideo+bestaudio/best',
         'outtmpl': str(job_dir / f"{video_id}.%(ext)s"),
         'merge_output_format': 'mp4',
     })
