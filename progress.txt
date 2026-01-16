@@ -178,3 +178,41 @@
 - Using duration=first ensures output matches the speech track length
 - apad is essential to handle backgrounds shorter than speech
 
+
+## US-008: Add Subtitle Generation - COMPLETE
+
+**Date:** 2026-01-15 (iteration 8)
+**Files changed:**
+- translate.py (added generate_srt function at line 653)
+
+**Implementation notes:**
+- Created generate_srt() function to generate SRT subtitle files
+- Converts timestamps to SRT format: HH:MM:SS,mmm
+- Uses format_timestamp() helper nested inside the function
+- Skips empty segments automatically
+- Writes with UTF-8 encoding for full Unicode support (tested with Russian, Japanese, Arabic)
+- Function signature: (segments: list[dict], output_path: Optional[Path] = None) -> Path
+
+**SRT format implementation:**
+```
+1
+00:00:00,000 --> 00:00:02,500
+Subtitle text here
+
+2
+00:00:02,500 --> 00:00:05,000
+Next subtitle
+```
+
+**Key implementation details:**
+- Timestamp format uses comma for milliseconds separator (SRT standard)
+- Sequential subtitle indices starting from 1
+- Blank line between each subtitle entry
+- Uses segments' translated_text field
+
+**Learnings:**
+- SRT uses comma (not dot) for milliseconds: HH:MM:SS,mmm
+- UTF-8 encoding in open() handles all Unicode correctly
+- Empty segments should be skipped to avoid blank subtitles
+- Floating point to milliseconds conversion may have minor precision variance (122 vs 123ms for 0.123s)
+
