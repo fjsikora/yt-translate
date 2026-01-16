@@ -12,7 +12,8 @@ A FastAPI service that translates videos from 1700+ sites using cloud APIs:
 Designed for deployment on Self-hosted, Render, or similar platforms.
 No GPU required - all heavy lifting done by cloud APIs.
 """
-
+from dotenv import load_dotenv
+load_dotenv()
 import asyncio
 import base64
 import os
@@ -585,7 +586,7 @@ async def separate_audio(audio_path: Path, job_id: str) -> tuple[Path, Path]:
 
         # Call Replicate demucs API
         output = replicate.run(
-            "cjwbw/demucs:25a173108cff36ef9f80f854c162d01df9e6528be175794b81571f6e7c5d5f2b",
+            "cjwbw/demucs:25a173108cff36ef9f80f854c162d01df9e6528be175794b81158fa03836d953",
             input={
                 "audio": data_uri,
                 "output_format": "wav",
