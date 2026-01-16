@@ -274,6 +274,33 @@ def update_job(job_id: str, **kwargs):
         jobs[job_id]["updated_at"] = time.time()
 
 
+def parse_timestamp(ts: str) -> float:
+    """
+    Convert a timestamp string to float seconds.
+
+    Handles format like "0:00:00.497812" (H:MM:SS.microseconds)
+    or "1:30:45.5" (H:MM:SS.fraction).
+
+    Args:
+        ts: Timestamp string in format "H:MM:SS.fraction" or "H:MM:SS"
+
+    Returns:
+        Time in seconds as float (e.g., "1:30:45.5" -> 5445.5)
+    """
+    parts = ts.split(":")
+    if len(parts) == 3:
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = float(parts[2])
+        return hours * 3600 + minutes * 60 + seconds
+    elif len(parts) == 2:
+        minutes = int(parts[0])
+        seconds = float(parts[1])
+        return minutes * 60 + seconds
+    else:
+        return float(ts)
+
+
 async def download_video(
     url: str,
     job_id: str,
