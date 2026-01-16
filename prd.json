@@ -78,8 +78,8 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 5. Created utils/audio_helpers.py with all 3 functions. Removed 50 lines of inline function definitions from cloud_translate.py."
     },
     {
       "id": "US-006",

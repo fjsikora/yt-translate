@@ -89,3 +89,27 @@
 - The function signature matches FastAPI's dependency injection pattern but is called directly for simplicity
 - Pre-existing typecheck errors in db.py are unrelated to this change (Supabase SDK type issues)
 
+## US-005: Extract Audio Helper Functions - COMPLETE
+
+**Date:** 2026-01-16
+**Files changed:**
+- utils/__init__.py (NEW)
+- utils/audio_helpers.py (NEW)
+- cloud_translate.py
+
+**Implementation notes:**
+- Created `utils/` package with `audio_helpers.py` module
+- Extracted 3 functions from `synthesize_segments_multi_speaker`:
+  - `read_wav_file(wav_path) -> tuple[int, np.ndarray]`: Reads WAV files, handles 16/32-bit, stereo->mono conversion
+  - `write_wav_file(wav_path, sample_rate, audio)`: Writes float32 audio as 16-bit PCM WAV
+  - `resample_audio(audio, orig_sr, target_sr) -> np.ndarray`: Linear interpolation resampling
+- Added import in cloud_translate.py at line 76
+- Removed inline function definitions (50 lines saved)
+- Removed unused `import wave` and `import struct` from function body (numpy still needed locally)
+
+**Learnings:**
+- The functions were well-isolated with clear inputs/outputs - ideal extraction candidates
+- Used `from pathlib import Path` in the new module rather than string paths for type safety
+- The `match_segment_to_speaker` closure was NOT extracted as it depends on function-local variables (fallback_speaker, diarization_segments)
+- These helpers will be useful for US-009 (unit tests for audio helpers)
+
