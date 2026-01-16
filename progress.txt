@@ -294,3 +294,54 @@ def merge_audio_video(video_path: Path, audio_path: Path, output_name: str,
 - Multi-speaker synthesis creates more natural-sounding translations
 - Background audio preservation maintains the original video's atmosphere
 
+
+## US-011: Fix cloud_translate.py Whisper Timestamps - COMPLETE
+
+**Date:** 2026-01-15 (iteration 11)
+**Files changed:**
+- cloud_translate.py (modified transcribe_audio, added translate_segments, updated pipeline functions)
+
+**Implementation notes:**
+- Changed transcribe_audio() to use verbose_json response format with timestamp_granularities=["segment"]
+- New return type: list[dict] with segments containing start, end, text, duration
+- Added translate_segments() function that preserves timestamps while translating
+- Updated process_translation(), process_preview(), process_full_translation() to use segment-based approach
+- For backward compatibility, translated segments are combined into single text for existing TTS synthesis
+
+**Key OpenAI API changes:**
+```python
+transcript = client.audio.transcriptions.create(
+    model="whisper-1",
+    file=audio_file,
+    response_format="verbose_json",
+    timestamp_granularities=["segment"]
+)
+```
+
+**Segment format (matches local transcribe_audio):**
+```python
+{
+    "start": float,    # Segment start time in seconds
+    "end": float,      # Segment end time in seconds
+    "text": str,       # Transcribed text (stripped)
+    "duration": float  # end - start
+}
+```
+
+**Translated segment format (matches local translate_segments):**
+```python
+{
+    "start": float,
+    "end": float,
+    "duration": float,
+    "original_text": str,
+    "translated_text": str
+}
+```
+
+**Learnings:**
+- OpenAI Whisper API verbose_json returns segments as objects (not dicts) - need getattr/isinstance handling
+- timestamp_granularities must be a list: ["segment"], not just "segment"
+- The segment-based approach enables future multi-speaker synthesis (US-015)
+- For now, combining translated text preserves backward compatibility with existing TTS
+
