@@ -61,13 +61,20 @@ PREVIEW_RATE_WINDOW = int(os.getenv("PREVIEW_RATE_WINDOW", "3600"))  # Window in
 
 # Proxy configuration for yt-dlp (to bypass YouTube bot detection)
 OXYLABS_PROXY = os.getenv("OXYLABS_PROXY")  # Format: http://user:pass@pr.oxylabs.io:7777
+YOUTUBE_COOKIES = os.getenv("YOUTUBE_COOKIES")  # Netscape cookie format for YouTube authentication
 
 
 def get_ytdlp_opts(extra_opts: dict = None) -> dict:
-    """Get yt-dlp options with optional proxy support."""
+    """Get yt-dlp options with optional proxy and cookie support."""
     opts = {'quiet': True, 'no_warnings': True}
     if OXYLABS_PROXY:
         opts['proxy'] = OXYLABS_PROXY
+    if YOUTUBE_COOKIES:
+        # Write cookies to temp file for yt-dlp
+        cookie_file = OUTPUT_DIR / "youtube_cookies.txt"
+        cookie_file.parent.mkdir(parents=True, exist_ok=True)
+        cookie_file.write_text(YOUTUBE_COOKIES)
+        opts['cookiefile'] = str(cookie_file)
     if extra_opts:
         opts.update(extra_opts)
     return opts
