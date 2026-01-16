@@ -17,6 +17,9 @@ httpx>=0.25.0
 # Translation
 deep-translator>=1.11.0
 
+# Audio processing
+demucs>=4.0.0
+
 # Data models
 pydantic>=2.0.0
 
