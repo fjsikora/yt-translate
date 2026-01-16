@@ -57,6 +57,22 @@ from languages import (
     ISO_639_1_TO_639_2,
     LANG_NAMES,
 )
+from config import (
+    GOOGLE_TRANSLATE_CHUNK_SIZE,
+    LLM_MAX_SEGMENTS_PER_BATCH,
+    LLM_BATCH_OVERLAP,
+    LLM_MAX_TOKENS,
+    LLM_TEMPERATURE,
+    CHATTERBOX_SAMPLE_RATE,
+    MIN_VOICE_SAMPLE_DURATION,
+    MAX_VOICE_SAMPLE_DURATION,
+    SIGNED_URL_EXPIRATION,
+    SIGNED_URL_EXPIRATION_LONG,
+    REPLICATE_MODEL_LLAMA,
+    REPLICATE_MODEL_CHATTERBOX,
+    REPLICATE_MODEL_DEMUCS,
+    REPLICATE_MODEL_DIARIZATION,
+)
 
 # Note: Local pyannote SpeakerDiarizer has been replaced with Replicate's
 # speaker-diarization API for lightweight cloud deployment (no PyTorch required)
@@ -340,8 +356,8 @@ def extract_speaker_samples_ffmpeg(
     audio_path: Path,
     output_dir: Path,
     segments: list[dict],
-    target_duration: float = 12.0,
-    min_duration: float = 3.0
+    target_duration: float = MAX_VOICE_SAMPLE_DURATION,
+    min_duration: float = MIN_VOICE_SAMPLE_DURATION
 ) -> dict[str, Path]:
     """
     Extract voice samples for each speaker using ffmpeg.
@@ -353,8 +369,8 @@ def extract_speaker_samples_ffmpeg(
         audio_path: Path to the source audio file
         output_dir: Directory to save extracted samples
         segments: List of diarization segments with 'speaker', 'start', 'end' keys
-        target_duration: Maximum duration for each sample (default 12.0 seconds)
-        min_duration: Minimum segment duration required to extract (default 3.0 seconds)
+        target_duration: Maximum duration for each sample (default MAX_VOICE_SAMPLE_DURATION seconds)
+        min_duration: Minimum segment duration required to extract (default MIN_VOICE_SAMPLE_DURATION seconds)
 
     Returns:
         Dict mapping speaker ID to the Path of the extracted sample file.
@@ -391,7 +407,7 @@ def extract_speaker_samples_ffmpeg(
             "-i", str(audio_path),
             "-ss", str(longest_seg["start"]),
             "-t", str(extract_duration),
-            "-ar", "24000",  # 24kHz sample rate
+            "-ar", str(CHATTERBOX_SAMPLE_RATE),  # Chatterbox requires 24kHz
             "-ac", "1",  # Mono
             "-acodec", "pcm_s16le",  # 16-bit signed PCM (required by Chatterbox)
             str(sample_path)
@@ -558,12 +574,11 @@ async def translate_text(text: str, target_lang: str, job_id: str) -> str:
     google_code = GOOGLE_LANG_CODES.get(target_lang, target_lang)
 
     # Split into chunks if text is too long (Google has limits)
-    max_chunk_size = 4500
-    if len(text) <= max_chunk_size:
+    if len(text) <= GOOGLE_TRANSLATE_CHUNK_SIZE:
         translated = GoogleTranslator(source='auto', target=google_code).translate(text)
     else:
         # Translate in chunks
-        chunks = [text[i:i+max_chunk_size] for i in range(0, len(text), max_chunk_size)]
+        chunks = [text[i:i+GOOGLE_TRANSLATE_CHUNK_SIZE] for i in range(0, len(text), GOOGLE_TRANSLATE_CHUNK_SIZE)]
         translated_chunks = []
         for chunk in chunks:
             translated_chunk = GoogleTranslator(source='auto', target=google_code).translate(chunk)
@@ -647,10 +662,9 @@ async def translate_segments_llm(segments: list[dict], target_lang: str, job_id:
     target_lang_name = LANG_NAMES.get(target_lang, target_lang)
 
     # For long videos, batch segments to stay within context limits
-    MAX_SEGMENTS_PER_BATCH = 50
     all_translations = {}
 
-    if len(transcript_lines) <= MAX_SEGMENTS_PER_BATCH:
+    if len(transcript_lines) <= LLM_MAX_SEGMENTS_PER_BATCH:
         # Single batch - translate all at once
         batch_translations = await _translate_batch_llm(
             transcript_lines, target_lang_name, job_id
@@ -659,10 +673,9 @@ async def translate_segments_llm(segments: list[dict], target_lang: str, job_id:
     else:
         # Multiple batches with overlap for context continuity
         logger.info("[job_id=%s] Translating %d segments in batches", job_id, len(transcript_lines))
-        overlap = 5  # Segments of overlap between batches
         batch_num = 0
-        for batch_start in range(0, len(transcript_lines), MAX_SEGMENTS_PER_BATCH - overlap):
-            batch_end = min(batch_start + MAX_SEGMENTS_PER_BATCH, len(transcript_lines))
+        for batch_start in range(0, len(transcript_lines), LLM_MAX_SEGMENTS_PER_BATCH - LLM_BATCH_OVERLAP):
+            batch_end = min(batch_start + LLM_MAX_SEGMENTS_PER_BATCH, len(transcript_lines))
             batch_lines = transcript_lines[batch_start:batch_end]
 
             batch_translations = await _translate_batch_llm(
@@ -674,7 +687,7 @@ async def translate_segments_llm(segments: list[dict], target_lang: str, job_id:
             batch_num += 1
 
             # Update progress within translation stage
-            progress = 50 + int((batch_num / ((len(transcript_lines) / (MAX_SEGMENTS_PER_BATCH - overlap)) + 1)) * 5)
+            progress = 50 + int((batch_num / ((len(transcript_lines) / (LLM_MAX_SEGMENTS_PER_BATCH - LLM_BATCH_OVERLAP)) + 1)) * 5)
             update_job(job_id, progress=min(progress, 55))
 
     # Build translated segments
@@ -726,11 +739,11 @@ Translate each line to {target_lang_name}, keeping the same numbered format:"""
 
     try:
         output = replicate.run(
-            "meta/meta-llama-3.1-405b-instruct",
+            REPLICATE_MODEL_LLAMA,
             input={
                 "prompt": prompt,
-                "max_tokens": 4096,
-                "temperature": 0.3,  # Lower for more consistent translations
+                "max_tokens": LLM_MAX_TOKENS,
+                "temperature": LLM_TEMPERATURE,
             }
         )
 
@@ -813,12 +826,12 @@ async def synthesize_speech(
     job_dir = OUTPUT_DIR / job_id
     output_audio = job_dir / "translated_audio.wav"
 
-    # Extract a 10-second voice sample for cloning (24kHz mono for Chatterbox)
+    # Extract a voice sample for cloning (Chatterbox sample rate, mono)
     voice_sample = job_dir / "voice_sample.wav"
     subprocess.run([
         'ffmpeg', '-i', str(audio_prompt_path),
         '-t', '10',
-        '-ar', '24000',  # Chatterbox requires 24kHz
+        '-ar', str(CHATTERBOX_SAMPLE_RATE),  # Chatterbox requires 24kHz
         '-ac', '1',       # Mono
         '-y', str(voice_sample)
     ], capture_output=True, check=True)
@@ -828,7 +841,7 @@ async def synthesize_speech(
     # Upload voice sample to Supabase Storage for Replicate API access
     try:
         storage_path = db.upload_voice_sample(job_id, str(voice_sample))
-        voice_sample_url = db.get_voice_sample_signed_url(storage_path, expires_in=3600)
+        voice_sample_url = db.get_voice_sample_signed_url(storage_path, expires_in=SIGNED_URL_EXPIRATION)
     except Exception as e:
         raise RuntimeError(f"Failed to upload voice sample: {e}")
 
@@ -836,10 +849,9 @@ async def synthesize_speech(
 
     # Call Replicate Chatterbox API with voice cloning
     try:
-        model_name = "resemble-ai/chatterbox-multilingual:9cfba4c265e685f840612be835424f8c33bdee685d7466ece7684b0d9d4c0b1c"
-        logger.info("[job_id=%s] Calling Replicate: %s, token set: %s", job_id, model_name.split(':')[0], bool(os.getenv('REPLICATE_API_TOKEN')))
+        logger.info("[job_id=%s] Calling Replicate: %s, token set: %s", job_id, REPLICATE_MODEL_CHATTERBOX.split(':')[0], bool(os.getenv('REPLICATE_API_TOKEN')))
         output = replicate.run(
-            model_name,
+            REPLICATE_MODEL_CHATTERBOX,
             input={
                 "text": text,
                 "language": target_lang,
@@ -900,10 +912,9 @@ async def separate_audio(audio_path: Path, job_id: str) -> tuple[Path, Path]:
         data_uri = f"data:{mime_type};base64,{audio_data}"
 
         # Call Replicate demucs API
-        model_name = "cjwbw/demucs:25a173108cff36ef9f80f854c162d01df9e6528be175794b81158fa03836d953"
-        logger.info("[job_id=%s] Calling Replicate: %s, token set: %s", job_id, model_name.split(':')[0], bool(os.getenv('REPLICATE_API_TOKEN')))
+        logger.info("[job_id=%s] Calling Replicate: %s, token set: %s", job_id, REPLICATE_MODEL_DEMUCS.split(':')[0], bool(os.getenv('REPLICATE_API_TOKEN')))
         output = replicate.run(
-            model_name,
+            REPLICATE_MODEL_DEMUCS,
             input={
                 "audio": data_uri,
                 "output_format": "wav",
@@ -978,16 +989,15 @@ async def diarize_speakers(
         )
         vocals_url = db.get_voice_sample_signed_url(
             storage_path=vocals_storage_path,
-            expires_in=3600  # 1 hour expiration
+            expires_in=SIGNED_URL_EXPIRATION
         )
 
         update_job(job_id, progress=33)
 
         # Call Replicate's speaker-diarization API
-        model_name = "meronym/speaker-diarization:64b78c82f74d78164b49178443c819445f5dca2c51c8ec374783d49382342119"
-        logger.info("[job_id=%s] Calling Replicate: %s, token set: %s", job_id, model_name.split(':')[0], bool(os.getenv('REPLICATE_API_TOKEN')))
+        logger.info("[job_id=%s] Calling Replicate: %s, token set: %s", job_id, REPLICATE_MODEL_DIARIZATION.split(':')[0], bool(os.getenv('REPLICATE_API_TOKEN')))
         output = replicate.run(
-            model_name,
+            REPLICATE_MODEL_DIARIZATION,
             input={"audio": vocals_url}
         )
 
@@ -1053,7 +1063,7 @@ async def diarize_speakers(
                 # Get signed URL for Replicate API access
                 signed_url = db.get_voice_sample_signed_url(
                     storage_path=storage_path,
-                    expires_in=3600  # 1 hour expiration
+                    expires_in=SIGNED_URL_EXPIRATION
                 )
 
                 speaker_voice_urls[speaker_id] = signed_url
@@ -1191,8 +1201,8 @@ async def synthesize_segments_multi_speaker(
     total_segments = len(translated_segments)
     segment_audios: list[tuple[float, np.ndarray]] = []  # (original_start, audio)
 
-    # Target sample rate (Chatterbox typically outputs 24kHz)
-    target_sample_rate = 24000
+    # Target sample rate for Chatterbox output
+    target_sample_rate = CHATTERBOX_SAMPLE_RATE
 
     for i, seg in enumerate(translated_segments):
         text = seg.get("translated_text", "")
@@ -1213,10 +1223,9 @@ async def synthesize_segments_multi_speaker(
 
         # Call Replicate Chatterbox API for this segment
         try:
-            model_name = "resemble-ai/chatterbox-multilingual:9cfba4c265e685f840612be835424f8c33bdee685d7466ece7684b0d9d4c0b1c"
-            logger.debug("[job_id=%s] Calling Replicate: %s for segment %d", job_id, model_name.split(':')[0], i)
+            logger.debug("[job_id=%s] Calling Replicate: %s for segment %d", job_id, REPLICATE_MODEL_CHATTERBOX.split(':')[0], i)
             output = replicate.run(
-                model_name,
+                REPLICATE_MODEL_CHATTERBOX,
                 input={
                     "text": text,
                     "language": target_lang,
@@ -2049,7 +2058,7 @@ async def get_preview_status(
         preview_file_path = preview_job.get("preview_file_path")
         if preview_file_path:
             try:
-                preview_url = db.get_preview_signed_url(preview_file_path, expires_in=3600)
+                preview_url = db.get_preview_signed_url(preview_file_path, expires_in=SIGNED_URL_EXPIRATION)
             except Exception:
                 # If signed URL generation fails, still return status
                 pass
@@ -2149,8 +2158,8 @@ async def get_preview_video(
         )
 
     try:
-        # Generate signed URL with 1 hour expiration
-        signed_url = db.get_preview_signed_url(preview_file_path, expires_in=3600)
+        # Generate signed URL with standard expiration
+        signed_url = db.get_preview_signed_url(preview_file_path, expires_in=SIGNED_URL_EXPIRATION)
         if not signed_url:
             raise HTTPException(
                 status_code=500,
@@ -2769,8 +2778,8 @@ async def get_translation_job_status(
         output_file_path = translation_job.get("output_file_path")
         if output_file_path:
             try:
-                # Generate signed URL with 24 hour expiration
-                download_url = db.get_translation_signed_url(output_file_path, expires_in=86400)
+                # Generate signed URL with long expiration (24 hours)
+                download_url = db.get_translation_signed_url(output_file_path, expires_in=SIGNED_URL_EXPIRATION_LONG)
             except Exception:
                 # If signed URL generation fails, still return status
                 pass
@@ -2892,10 +2901,9 @@ async def download_translation_job(
             detail="Translation output file not found"
         )
 
-    # Generate signed URL with 24 hour expiration (86400 seconds)
-    expires_in = 86400
+    # Generate signed URL with long expiration (24 hours)
     try:
-        download_url = db.get_translation_signed_url(output_file_path, expires_in=expires_in)
+        download_url = db.get_translation_signed_url(output_file_path, expires_in=SIGNED_URL_EXPIRATION_LONG)
         if not download_url:
             raise HTTPException(
                 status_code=500,
@@ -2903,7 +2911,7 @@ async def download_translation_job(
             )
         return TranslationDownloadResponse(
             download_url=download_url,
-            expires_in=expires_in
+            expires_in=SIGNED_URL_EXPIRATION_LONG
         )
     except ValueError as e:
         raise HTTPException(
