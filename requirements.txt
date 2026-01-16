@@ -10,6 +10,7 @@ torch
 
 # Audio processing
 demucs>=4.0.0
+pyannote.audio>=3.1.0
 
 # Force newer numpy for Python 3.12+ compatibility
 numpy>=1.26.0
