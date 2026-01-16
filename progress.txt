@@ -514,3 +514,53 @@ def match_segment_to_speaker(seg_start, seg_end) -> str:
 - Progress is updated during synthesis (60-85% range) based on segment index
 - Multi-speaker synthesis only activates when both speaker_voice_urls and diarization_segments are available
 
+
+## US-016: Add Background Mixing and Subtitles to cloud_translate.py - COMPLETE
+
+**Date:** 2026-01-15 (iteration 16)
+**Files changed:**
+- cloud_translate.py (added functions, updated pipeline functions)
+
+**Implementation notes:**
+- Added ISO_639_1_TO_639_2 mapping (22 language codes) for ffmpeg subtitle metadata
+- Added get_iso_639_2_code() helper to convert 2-letter to 3-letter ISO codes
+- Added generate_srt() function:
+  - Generates SRT format subtitles with HH:MM:SS,mmm timestamps
+  - Supports job_id parameter for automatic output path determination
+  - UTF-8 encoding for full Unicode support
+- Added mix_audio_with_background() function:
+  - Uses ffmpeg filter_complex for professional audio mixing
+  - Speech at 100% volume, background at 30% (configurable)
+  - apad filter handles shorter background tracks
+  - amix duration=first ensures output matches speech length
+- Updated merge_audio_video() to support optional subtitles:
+  - Accepts subtitle_path and subtitle_lang parameters
+  - Uses mov_text codec for MP4-compatible soft subtitles
+  - Sets language metadata on subtitle stream
+- Updated all three pipeline functions:
+  - process_translation() - older /translate API endpoint
+  - process_preview() - preview pipeline for 60-second clips
+  - process_full_translation() - full translation after payment
+- Each pipeline now has new stages: "mix" (83-85%) and "subtitles" (86-88%)
+
+**Key ffmpeg commands:**
+```bash
+# Audio mixing
+ffmpeg -i speech.wav -i background.wav -filter_complex \
+  '[1:a]apad,volume=0.3[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0' \
+  -ac 2 -y output.wav
+
+# Video merging with subtitles
+ffmpeg -i video.mp4 -i audio.wav -i subtitles.srt \
+  -c:v copy -c:a aac -c:s mov_text \
+  -map 0:v:0 -map 1:a:0 -map 2:0 \
+  -metadata:s:s:0 language=eng \
+  -shortest -y output.mp4
+```
+
+**Learnings:**
+- mov_text codec is the standard for MP4 soft subtitles (toggleable in VLC, QuickTime, etc.)
+- ffmpeg uses ISO 639-2 (3-letter) codes for language metadata
+- Background mixing only occurs when audio separation succeeded (background_path != audio_path)
+- Progress percentages were adjusted to accommodate new mix and subtitle stages
+
