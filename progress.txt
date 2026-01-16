@@ -345,3 +345,47 @@ transcript = client.audio.transcriptions.create(
 - The segment-based approach enables future multi-speaker synthesis (US-015)
 - For now, combining translated text preserves backward compatibility with existing TTS
 
+
+## US-012: Fix cloud_translate.py Voice Cloning - COMPLETE
+
+**Date:** 2026-01-15 (iteration 12)
+**Files changed:**
+- db.py (added upload_voice_sample, get_voice_sample_signed_url functions)
+- cloud_translate.py (updated synthesize_speech function)
+
+**Implementation notes:**
+- Added VOICE_SAMPLES_BUCKET constant and two new functions to db.py:
+  - upload_voice_sample(job_id, file_path, speaker_id) - uploads WAV to Supabase Storage
+  - get_voice_sample_signed_url(storage_path, expires_in) - generates signed URL for Replicate API
+- Updated synthesize_speech() in cloud_translate.py:
+  - Now extracts 10s voice sample at 24kHz mono (Chatterbox requirement)
+  - Uploads voice sample to Supabase Storage via db.upload_voice_sample()
+  - Gets signed URL for the uploaded sample via db.get_voice_sample_signed_url()
+  - Passes audio_prompt URL to Replicate Chatterbox API
+  - Added cfg_weight (0.5 default) and exaggeration (0.5 default) parameters
+
+**Key Replicate API parameters:**
+```python
+output = replicate.run(
+    "resemble-ai/chatterbox-multilingual",
+    input={
+        "text": text,
+        "language_id": target_lang,
+        "audio_prompt": voice_sample_url,  # NEW: Signed URL to voice sample
+        "cfg_weight": cfg_weight,          # NEW: Pace/stability (0.0-1.0)
+        "exaggeration": exaggeration,      # NEW: Voice expressiveness (0.0-1.0)
+    }
+)
+```
+
+**Storage structure:**
+- Bucket: voice-samples
+- Path format: {job_id}/{speaker_id}.wav
+- Signed URL expires in 1 hour (sufficient for API call)
+
+**Learnings:**
+- Replicate API requires a URL for audio_prompt, not a local file path
+- Supabase Storage signed URLs work well for temporary access
+- The speaker_id parameter in upload_voice_sample enables future multi-speaker support (US-014)
+- Default cfg_weight=0.5 and exaggeration=0.5 provide balanced voice output
+

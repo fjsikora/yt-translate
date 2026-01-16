@@ -185,8 +185,8 @@
         "Typecheck passes"
       ],
       "priority": 12,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 12 - Added db.upload_voice_sample() and db.get_voice_sample_signed_url(), updated synthesize_speech() with audio_prompt, cfg_weight, exaggeration params"
     },
     {
       "id": "US-013",
