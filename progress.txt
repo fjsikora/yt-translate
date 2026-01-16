@@ -25,3 +25,24 @@
 - Chatterbox requires 24kHz mono WAV for voice samples
 - Project has two venvs: .venv (local with torch) and .venv-cloud (for cloud APIs)
 
+
+## US-002: Integrate Demucs for Audio Separation - COMPLETE
+
+**Date:** 2026-01-15 23:00
+**Files changed:**
+- requirements.txt (added demucs>=4.0.0)
+- requirements-cloud.txt (added demucs>=4.0.0)
+
+**Implementation notes:**
+- Added demucs>=4.0.0 dependency to both requirements files
+- AudioSeparator class (from US-001) already implements all Demucs functionality:
+  - Uses htdemucs model by default
+  - separate() returns tuple of (vocals, background, sample_rate)
+  - save_separated() writes normalized WAV files
+  - Auto-detects GPU/CPU with fallback
+
+**Learnings:**
+- .venv doesn't have pip module installed, use syntax validation instead
+- AudioSeparator was already fully implemented in US-001, this story just needed requirements update
+- Type annotations verified via inspect.signature - tuple[np.ndarray, np.ndarray, int]
+
