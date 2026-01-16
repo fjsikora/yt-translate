@@ -593,3 +593,43 @@ ffmpeg -i video.mp4 -i audio.wav -i subtitles.srt \
 - HUGGINGFACE_TOKEN requires users to accept model licenses on Hugging Face
 - Documentation should include troubleshooting for common setup issues
 
+
+## US-018: End-to-End Testing - Local - BLOCKED
+
+**Date:** 2026-01-15 (iteration 18)
+**Status:** BLOCKED - requires human intervention
+
+**Blocker:**
+The HUGGINGFACE_TOKEN environment variable is not set in .env. This token is required for:
+1. pyannote.audio speaker diarization model
+2. Speaker identification (required for multi-speaker synthesis)
+3. Voice sample extraction per speaker
+
+**What was verified:**
+- Typecheck passes (syntax validation successful)
+- Pipeline structure in translate.py is correct and complete
+- All audio processing components are properly integrated
+- GPU is available (CUDA support confirmed)
+- Local .venv has all required packages installed
+
+**To unblock:**
+1. Get a Hugging Face token from: https://huggingface.co/settings/tokens
+2. Accept pyannote model licenses:
+   - https://huggingface.co/pyannote/speaker-diarization-3.1
+   - https://huggingface.co/pyannote/segmentation-3.0
+3. Add to .env: HUGGINGFACE_TOKEN=hf_...
+4. Re-run this iteration
+
+**Acceptance criteria status:**
+- [ ] Translate a video with male and female speakers - BLOCKED
+- [ ] Verify different voices used for different speakers - BLOCKED
+- [ ] Verify background music is preserved at lower volume - BLOCKED
+- [ ] Verify subtitles can be toggled on/off in VLC - BLOCKED
+- [ ] Verify no echo/reverb artifacts in output audio - BLOCKED
+- [x] Typecheck passes - VERIFIED
+
+**Learnings:**
+- End-to-end testing requires ALL environment variables to be set
+- pyannote models require explicit license acceptance on Hugging Face
+- Future PRDs should include "environment setup verification" as a pre-requisite story
+

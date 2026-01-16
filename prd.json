@@ -277,7 +277,7 @@
       ],
       "priority": 18,
       "passes": false,
-      "notes": ""
+      "notes": "BLOCKER: HUGGINGFACE_TOKEN not set in .env. Speaker diarization requires this token. Please add your Hugging Face token to .env (get from https://huggingface.co/settings/tokens) and ensure you've accepted the pyannote model licenses."
     },
     {
       "id": "US-019",
