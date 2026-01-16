@@ -472,3 +472,45 @@ async def diarize_speakers(
 - The speaker_voice_urls dict maps speaker IDs (e.g., "SPEAKER_00") to signed URLs
 - These URLs are passed to US-015 for multi-speaker synthesis
 
+
+## US-015: Add Multi-Speaker Synthesis to cloud_translate.py - COMPLETE
+
+**Date:** 2026-01-15 (iteration 15)
+**Files changed:**
+- cloud_translate.py (added synthesize_segments_multi_speaker function, updated 3 pipeline functions)
+
+**Implementation notes:**
+- Created synthesize_segments_multi_speaker() function with the following features:
+  - Matches transcription segments to speakers using timestamp overlap calculation
+  - Uses speaker-specific voice sample URLs for Replicate Chatterbox API calls
+  - Downloads each segment audio, reads it using standard library (wave module)
+  - Combines segments without time-stretching at natural playback speed
+  - Prevents overlap by starting each segment at max(original_start, previous_end)
+- Updated three pipeline functions to use multi-speaker when diarization available:
+  1. process_translation() - the older /translate API endpoint
+  2. process_preview() - preview pipeline for 60-second clips
+  3. process_full_translation() - full translation after payment
+- Falls back to single-speaker synthesis if no diarization data available
+
+**Key implementation details:**
+```python
+def match_segment_to_speaker(seg_start, seg_end) -> str:
+    """Find speaker with maximum overlap."""
+    for diar_seg in diarization_segments:
+        overlap_start = max(seg_start, diar_seg["start"])
+        overlap_end = min(seg_end, diar_seg["end"])
+        overlap = max(0.0, overlap_end - overlap_start)
+        # Track best overlap...
+```
+
+**Helper functions (to avoid scipy dependency):**
+- read_wav_file(): Reads WAV using standard library wave module
+- write_wav_file(): Writes WAV as 16-bit PCM
+- resample_audio(): Simple linear interpolation resampling
+
+**Learnings:**
+- Avoided adding scipy as a dependency by using standard library wave module
+- The Replicate API returns a URL that needs to be downloaded for each segment
+- Progress is updated during synthesis (60-85% range) based on segment index
+- Multi-speaker synthesis only activates when both speaker_voice_urls and diarization_segments are available
+
