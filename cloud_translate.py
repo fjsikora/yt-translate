@@ -41,11 +41,8 @@ from pydantic import BaseModel
 
 import db
 
-# Import SpeakerDiarizer with fallback (requires pyannote which may not be installed in cloud)
-try:
-    from audio_processing import SpeakerDiarizer
-except ImportError:
-    SpeakerDiarizer = None
+# Note: Local pyannote SpeakerDiarizer has been replaced with Replicate's
+# speaker-diarization API for lightweight cloud deployment (no PyTorch required)
 
 # Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -722,8 +719,9 @@ async def diarize_speakers(
     """
     Run speaker diarization on vocals audio and extract per-speaker voice samples.
 
-    Uses pyannote.audio to identify different speakers, then extracts voice
-    samples for each speaker and uploads them to Supabase Storage.
+    Uses Replicate's speaker-diarization API (meronym/speaker-diarization) to identify
+    different speakers, then extracts voice samples using ffmpeg and uploads them
+    to Supabase Storage.
 
     Args:
         vocals_path: Path to the vocals audio file
@@ -745,25 +743,53 @@ async def diarize_speakers(
     speaker_voice_urls: dict[str, str] = {}
 
     try:
-        # Check if SpeakerDiarizer is available (requires pyannote)
-        if SpeakerDiarizer is None:
-            print(f"Warning: SpeakerDiarizer not available (pyannote not installed)")
-            return [], {}
+        # Upload vocals to Supabase to get a signed URL for Replicate
+        vocals_storage_path = db.upload_voice_sample(
+            job_id=job_id,
+            file_path=str(vocals_path),
+            speaker_id="vocals_input"
+        )
+        vocals_url = db.get_voice_sample_signed_url(
+            storage_path=vocals_storage_path,
+            expires_in=3600  # 1 hour expiration
+        )
 
-        # Initialize diarizer
-        diarizer = SpeakerDiarizer()
+        update_job(job_id, progress=33)
 
-        # Run diarization on vocals
-        diarization_segments = diarizer.diarize(vocals_path)
+        # Call Replicate's speaker-diarization API
+        output = replicate.run(
+            "meronym/speaker-diarization",
+            input={"audio": vocals_url}
+        )
 
         update_job(job_id, progress=35)
 
-        if not diarization_segments:
+        # Parse output segments and convert speaker labels
+        # Replicate returns: [{"speaker": "A", "start": "0:00:00.497812", "end": "0:00:02.123456"}, ...]
+        if not output:
             print(f"Warning: No speakers detected in audio for job {job_id}")
             return [], {}
 
-        # Extract per-speaker voice samples (24kHz mono WAV for Chatterbox)
-        speaker_samples = diarizer.extract_speaker_samples(
+        # Convert speaker labels from "A", "B" to "SPEAKER_00", "SPEAKER_01" format
+        speaker_label_map: dict[str, str] = {}
+        speaker_counter = 0
+
+        for seg in output:
+            raw_label = seg.get("speaker", "")
+            if raw_label not in speaker_label_map:
+                speaker_label_map[raw_label] = f"SPEAKER_{speaker_counter:02d}"
+                speaker_counter += 1
+
+            diarization_segments.append({
+                "speaker": speaker_label_map[raw_label],
+                "start": parse_timestamp(seg.get("start", "0")),
+                "end": parse_timestamp(seg.get("end", "0"))
+            })
+
+        update_job(job_id, progress=37)
+
+        # Extract per-speaker voice samples using ffmpeg helper
+        speaker_samples = extract_speaker_samples_ffmpeg(
             audio_path=vocals_path,
             output_dir=job_dir,
             segments=diarization_segments
