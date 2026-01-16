@@ -416,6 +416,26 @@ def upload_preview_to_storage(preview_id: str, file_path: str) -> str:
     )
 
 
+def get_signed_url(bucket: str, storage_path: str, expires_in: int = 3600) -> str:
+    """
+    Get a signed URL for accessing a file in Supabase Storage.
+
+    This is the generic signed URL function used by all storage operations.
+
+    Args:
+        bucket: Storage bucket name (e.g., "previews", "translations", "voice-samples")
+        storage_path: Path within the bucket (e.g., "{job_id}/preview.mp4")
+        expires_in: URL expiration time in seconds (default: 1 hour)
+
+    Returns:
+        Signed URL for accessing the file
+    """
+    client = get_supabase_client()
+
+    result = client.storage.from_(bucket).create_signed_url(storage_path, expires_in)
+    return result.get("signedURL", "")
+
+
 def get_preview_signed_url(storage_path: str, expires_in: int = 3600) -> str:
     """
     Get a signed URL for accessing a preview file.
@@ -427,9 +447,7 @@ def get_preview_signed_url(storage_path: str, expires_in: int = 3600) -> str:
     Returns:
         Signed URL for accessing the file
     """
-    client = get_supabase_client()
-
-    # Extract bucket and path
+    # Extract bucket and path from full storage path
     parts = storage_path.split("/", 1)
     if len(parts) != 2:
         raise ValueError(f"Invalid storage path: {storage_path}")
@@ -437,8 +455,7 @@ def get_preview_signed_url(storage_path: str, expires_in: int = 3600) -> str:
     bucket = parts[0]
     path = parts[1]
 
-    result = client.storage.from_(bucket).create_signed_url(path, expires_in)
-    return result.get("signedURL", "")
+    return get_signed_url(bucket, path, expires_in)
 
 
 def upload_translation_to_storage(translation_job_id: str, file_path: str) -> str:
@@ -475,9 +492,7 @@ def get_translation_signed_url(storage_path: str, expires_in: int = 86400) -> st
     Returns:
         Signed URL for accessing the file
     """
-    client = get_supabase_client()
-
-    # Extract bucket and path
+    # Extract bucket and path from full storage path
     parts = storage_path.split("/", 1)
     if len(parts) != 2:
         raise ValueError(f"Invalid storage path: {storage_path}")
@@ -485,8 +500,7 @@ def get_translation_signed_url(storage_path: str, expires_in: int = 86400) -> st
     bucket = parts[0]
     path = parts[1]
 
-    result = client.storage.from_(bucket).create_signed_url(path, expires_in)
-    return result.get("signedURL", "")
+    return get_signed_url(bucket, path, expires_in)
 
 
 def upload_voice_sample(job_id: str, file_path: str, speaker_id: str = "default") -> str:
@@ -529,9 +543,7 @@ def get_voice_sample_signed_url(storage_path: str, expires_in: int = 3600) -> st
     Returns:
         Signed URL for accessing the file
     """
-    client = get_supabase_client()
-
-    # Extract bucket and path
+    # Extract bucket and path from full storage path
     parts = storage_path.split("/", 1)
     if len(parts) != 2:
         raise ValueError(f"Invalid storage path: {storage_path}")
@@ -539,8 +551,7 @@ def get_voice_sample_signed_url(storage_path: str, expires_in: int = 3600) -> st
     bucket = parts[0]
     path = parts[1]
 
-    result = client.storage.from_(bucket).create_signed_url(path, expires_in)
-    return result.get("signedURL", "")
+    return get_signed_url(bucket, path, expires_in)
 
 
 # --- Authentication Operations ---
