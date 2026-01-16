@@ -316,8 +316,13 @@ async def download_video(
     return video_path, audio_path, {"title": title, "duration": actual_duration, "video_id": video_id}
 
 
-async def transcribe_audio(audio_path: Path, job_id: str) -> str:
-    """Transcribe audio using OpenAI Whisper API."""
+async def transcribe_audio(audio_path: Path, job_id: str) -> list[dict]:
+    """
+    Transcribe audio using OpenAI Whisper API with segment timestamps.
+
+    Returns segments in the same format as the local transcribe_audio():
+    [{"start": float, "end": float, "text": str, "duration": float}, ...]
+    """
     update_job(job_id, stage="transcribe", progress=30)
 
     client = OpenAI(api_key=OPENAI_API_KEY)
@@ -326,11 +331,35 @@ async def transcribe_audio(audio_path: Path, job_id: str) -> str:
         transcript = client.audio.transcriptions.create(
             model="whisper-1",
             file=audio_file,
-            response_format="text"
+            response_format="verbose_json",
+            timestamp_granularities=["segment"]
         )
 
     update_job(job_id, progress=45)
-    return transcript
+
+    # Parse response to extract segments with timestamps
+    # verbose_json response has: text, language, duration, segments[]
+    # Each segment has: id, seek, start, end, text, tokens, temperature, etc.
+    segments = []
+    for seg in getattr(transcript, "segments", []) or []:
+        # Handle both dict and object access patterns
+        if isinstance(seg, dict):
+            start = seg.get("start", 0.0)
+            end = seg.get("end", 0.0)
+            text = seg.get("text", "").strip()
+        else:
+            start = getattr(seg, "start", 0.0)
+            end = getattr(seg, "end", 0.0)
+            text = getattr(seg, "text", "").strip()
+
+        segments.append({
+            "start": start,
+            "end": end,
+            "text": text,
+            "duration": end - start
+        })
+
+    return segments
 
 
 async def translate_text(text: str, target_lang: str, job_id: str) -> str:
@@ -354,6 +383,43 @@ async def translate_text(text: str, target_lang: str, job_id: str) -> str:
 
     update_job(job_id, progress=55)
     return translated
+
+
+async def translate_segments(segments: list[dict], target_lang: str, job_id: str) -> list[dict]:
+    """
+    Translate each segment while preserving timing info.
+
+    Returns segments in the same format as the local translate_segments():
+    [{"start": float, "end": float, "duration": float, "original_text": str, "translated_text": str}, ...]
+    """
+    update_job(job_id, stage="translate", progress=50)
+
+    google_code = GOOGLE_LANG_CODES.get(target_lang, target_lang)
+
+    translated_segments = []
+    total = len(segments)
+
+    for i, seg in enumerate(segments):
+        text = seg.get("text", "")
+
+        if text:
+            try:
+                translated_text = GoogleTranslator(source='auto', target=google_code).translate(text)
+            except Exception:
+                translated_text = text  # Fallback to original if translation fails
+        else:
+            translated_text = ""
+
+        translated_segments.append({
+            "start": seg.get("start", 0.0),
+            "end": seg.get("end", 0.0),
+            "duration": seg.get("duration", 0.0),
+            "original_text": text,
+            "translated_text": translated_text
+        })
+
+    update_job(job_id, progress=55)
+    return translated_segments
 
 
 async def synthesize_speech(text: str, audio_prompt_path: Path, target_lang: str, job_id: str) -> Path:
@@ -443,14 +509,18 @@ async def process_translation(job_id: str, video_url: str, target_language: str)
         # 1. Download video
         video_path, audio_path, info = await download_video(video_url, job_id)
 
-        # 2. Transcribe
-        transcript = await transcribe_audio(audio_path, job_id)
+        # 2. Transcribe (returns segments with timestamps)
+        segments = await transcribe_audio(audio_path, job_id)
 
-        # 3. Translate
-        translated = await translate_text(transcript, target_language, job_id)
+        # 3. Translate segments (preserves timestamps)
+        translated_segments = await translate_segments(segments, target_language, job_id)
 
-        # 4. Synthesize (TTS)
-        new_audio = await synthesize_speech(translated, audio_path, target_language, job_id)
+        # 4. Synthesize (TTS) - for now, combine all translated text
+        # Future: US-015 will implement per-segment multi-speaker synthesis
+        translated_text = " ".join(
+            seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
+        )
+        new_audio = await synthesize_speech(translated_text, audio_path, target_language, job_id)
 
         # 5. Merge
         output = await merge_audio_video(video_path, new_audio, job_id, info["title"])
@@ -666,19 +736,23 @@ async def process_preview(preview_id: str, video_url: str, target_language: str)
         )
         db.update_preview_job(preview_id, progress=25)
 
-        # 2. Transcribe audio
+        # 2. Transcribe audio (returns segments with timestamps)
         db.update_preview_job(preview_id, stage="transcribe", progress=30)
-        transcript = await transcribe_audio(audio_path, preview_id)
+        segments = await transcribe_audio(audio_path, preview_id)
         db.update_preview_job(preview_id, progress=45)
 
-        # 3. Translate text
+        # 3. Translate segments (preserves timestamps)
         db.update_preview_job(preview_id, stage="translate", progress=50)
-        translated = await translate_text(transcript, target_language, preview_id)
+        translated_segments = await translate_segments(segments, target_language, preview_id)
         db.update_preview_job(preview_id, progress=55)
 
         # 4. Synthesize speech (TTS with voice cloning)
+        # For now, combine all translated text - US-015 will add per-segment synthesis
+        translated_text = " ".join(
+            seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
+        )
         db.update_preview_job(preview_id, stage="synthesize", progress=60)
-        new_audio = await synthesize_speech(translated, audio_path, target_language, preview_id)
+        new_audio = await synthesize_speech(translated_text, audio_path, target_language, preview_id)
         db.update_preview_job(preview_id, progress=85)
 
         # 5. Merge translated audio with video
@@ -1779,19 +1853,23 @@ async def process_full_translation(translation_job_id: str, video_url: str, targ
         )
         db.update_translation_job(translation_job_id, progress=25)
 
-        # 2. Transcribe audio
+        # 2. Transcribe audio (returns segments with timestamps)
         db.update_translation_job(translation_job_id, stage="transcribe", progress=30)
-        transcript = await transcribe_audio(audio_path, translation_job_id)
+        segments = await transcribe_audio(audio_path, translation_job_id)
         db.update_translation_job(translation_job_id, progress=45)
 
-        # 3. Translate text
+        # 3. Translate segments (preserves timestamps)
         db.update_translation_job(translation_job_id, stage="translate", progress=50)
-        translated = await translate_text(transcript, target_language, translation_job_id)
+        translated_segments = await translate_segments(segments, target_language, translation_job_id)
         db.update_translation_job(translation_job_id, progress=55)
 
         # 4. Synthesize speech (TTS with voice cloning)
+        # For now, combine all translated text - US-015 will add per-segment synthesis
+        translated_text = " ".join(
+            seg["translated_text"] for seg in translated_segments if seg.get("translated_text")
+        )
         db.update_translation_job(translation_job_id, stage="synthesize", progress=60)
-        new_audio = await synthesize_speech(translated, audio_path, target_language, translation_job_id)
+        new_audio = await synthesize_speech(translated_text, audio_path, target_language, translation_job_id)
         db.update_translation_job(translation_job_id, progress=85)
 
         # 5. Merge translated audio with video
