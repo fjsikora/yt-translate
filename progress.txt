@@ -69,3 +69,23 @@
 - Grouped related constants together with section comments for maintainability
 - Some constants (like VOICE_SAMPLE_DURATION_SECONDS=10) weren't being used - left in config.py for future use
 
+## US-004: Extract Access Control Helper - COMPLETE
+
+**Date:** 2026-01-16
+**Files changed:**
+- cloud_translate.py
+
+**Implementation notes:**
+- Created `verify_preview_access(preview_job, session_id, user_id)` helper function at line 1999
+- Function extracts the common access control logic that was duplicated in both endpoints
+- Logic checks if requester owns the preview via session_id or user_id match
+- Raises `HTTPException(403)` with consistent error message if access denied
+- Updated `get_preview_status` (line 2068) to use helper
+- Updated `get_preview_video` (line 2151) to use helper
+- Net change: +39 lines added, -30 lines removed (9 net lines saved, plus DRY benefits)
+
+**Learnings:**
+- Simple helper functions like this are ideal refactoring targets - no return value needed, just raise on failure
+- The function signature matches FastAPI's dependency injection pattern but is called directly for simplicity
+- Pre-existing typecheck errors in db.py are unrelated to this change (Supabase SDK type issues)
+
