@@ -119,3 +119,31 @@
 - Using max(original, previous_end) for segment timing is a clean solution for preventing overlap
 - librosa was only used for time_stretch in this file - removing it simplifies dependencies
 
+
+## US-006: Implement Multi-Speaker Synthesis in translate.py - COMPLETE
+
+**Date:** 2026-01-15 23:55
+**Files changed:**
+- translate.py (added synthesize_segments_multi_speaker function)
+
+**Implementation notes:**
+- Created new function synthesize_segments_multi_speaker() at line 496
+- Speaker matching algorithm uses timestamp overlap:
+  - For each transcription segment, find diarization segment with maximum overlap
+  - Calculate overlap as: max(0, min(seg_end, diar_end) - max(seg_start, diar_start))
+  - Return speaker with highest overlap, fallback to first speaker if no overlap
+- Uses speaker-specific voice samples from speaker_samples dict
+- Fallback mechanism: if speaker not in speaker_samples, use first available sample
+- Preserves natural 1x speed playback from US-005 (no time-stretching)
+- Function signature: (segments, diarization_segments, speaker_samples, lang_code, total_duration, tracker, update_fn) -> Path
+
+**Key design decisions:**
+- Overlap-based matching is more robust than point-in-time matching
+- Handles edge cases where transcription and diarization boundaries don't align perfectly
+- Progress display shows which speaker is being synthesized for each segment
+
+**Learnings:**
+- Diarization segments and transcription segments have different boundaries
+- Overlap calculation is the best way to match them
+- The existing synthesize_segments() is kept for backward compatibility (single-speaker mode)
+
