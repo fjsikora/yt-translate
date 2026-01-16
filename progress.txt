@@ -229,3 +229,29 @@
 - Testing consistency between related dictionaries catches potential drift when adding new languages
 - Helper function tests verify edge cases: case insensitivity, unknown values, fallback behavior
 
+## US-011: Add Integration Test for Pipeline - COMPLETE
+
+**Date:** 2026-01-16
+**Files changed:**
+- pytest.ini (NEW)
+- tests/test_pipeline.py (NEW)
+
+**Implementation notes:**
+- Created `test_pipeline.py` with 11 comprehensive integration tests organized in 5 test classes:
+  - `TestProcessVideoTranslationPreview`: 2 tests for preview job DB function calls and duration limit
+  - `TestProcessVideoTranslationPaid`: 2 tests for paid job DB function calls and no duration limit
+  - `TestProcessVideoTranslationLegacy`: 1 test verifying legacy job uses memory only, no cloud upload
+  - `TestProcessVideoTranslationErrorHandling`: 2 tests for error handling in preview and paid jobs
+  - `TestBackwardsCompatibilityWrappers`: 3 tests verifying process_preview, process_full_translation, and process_translation wrappers call unified function correctly
+  - `TestPipelineProgressUpdates`: 1 test verifying pipeline updates progress through all stages
+- All pipeline helper functions mocked: download_video, separate_audio, diarize_speakers, transcribe_audio, translate_segments_llm, synthesize_segments_multi_speaker, mix_audio_with_background, generate_srt, merge_audio_video
+- db module mocked to verify correct function calls (update_preview_job, update_translation_job, upload_preview_to_storage, upload_translation_to_storage)
+- Added pytest.ini for pytest-asyncio configuration (asyncio_mode=auto)
+- All 46 tests pass (11 audio + 24 language + 11 pipeline), typecheck passes
+
+**Learnings:**
+- pytest-asyncio required for testing async functions; configured in pytest.ini with asyncio_mode=auto
+- Mocking db module as a whole with patch("cloud_translate.db") allows verifying all DB calls
+- Test fixtures (tmp_path, mock_video_path, etc.) help reduce boilerplate in test methods
+- Integration tests verify the contract between the unified pipeline and its callers without needing real APIs
+

@@ -172,8 +172,8 @@
         "Typecheck passes"
       ],
       "priority": 11,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 11. Created tests/test_pipeline.py with 11 integration tests covering preview, paid, and legacy job types. Tests verify correct DB function calls, storage uploads, error handling, and backwards-compatible wrappers. Added pytest.ini for pytest-asyncio configuration."
     }
   ]
 }
