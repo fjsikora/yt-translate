@@ -24,6 +24,7 @@ import torch
 import whisper
 import yt_dlp
 from deep_translator import GoogleTranslator
+from audio_processing import AudioSeparator, SpeakerDiarizer
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
@@ -123,9 +124,12 @@ class ProgressTracker:
 
     STAGES = [
         ("download", "Download Video"),
+        ("separate", "Separate Audio"),
+        ("diarize", "Identify Speakers"),
         ("transcribe", "Transcribe Audio"),
         ("translate", "Translate Text"),
         ("synthesize", "Synthesize Voice"),
+        ("mix", "Mix Audio"),
         ("merge", "Merge Audio/Video"),
     ]
 
@@ -978,10 +982,41 @@ def main():
             tracker.complete_stage("download", f"Downloaded: {title[:50]}")
             update()
 
-            # Stage 2: Transcribe (with timestamps)
-            tracker.start_stage("transcribe", "Loading model...")
+            # Stage 2: Separate audio (vocals from background)
+            tracker.start_stage("separate", "Loading Demucs model...")
             update()
-            segments = transcribe_audio(audio_path, tracker, update)
+            separator = AudioSeparator()
+            tracker.update_detail("separate", "Separating vocals from background...")
+            update()
+            vocals, background, sep_sample_rate = separator.separate(audio_path)
+            tracker.update_detail("separate", "Saving separated audio files...")
+            update()
+            vocals_path, background_path = separator.save_separated(
+                vocals, background, sep_sample_rate, OUTPUT_DIR
+            )
+            tracker.complete_stage("separate", f"Separated: {vocals_path.name}, {background_path.name}")
+            update()
+
+            # Stage 3: Speaker diarization (identify speakers in vocals)
+            tracker.start_stage("diarize", "Loading speaker diarization model...")
+            update()
+            diarizer = SpeakerDiarizer()
+            tracker.update_detail("diarize", "Identifying speakers in audio...")
+            update()
+            diarization_segments = diarizer.diarize(vocals_path)
+            tracker.update_detail("diarize", "Extracting voice samples per speaker...")
+            update()
+            speaker_samples = diarizer.extract_speaker_samples(
+                vocals_path, OUTPUT_DIR, diarization_segments
+            )
+            num_speakers = len(speaker_samples)
+            tracker.complete_stage("diarize", f"Found {num_speakers} speaker(s)")
+            update()
+
+            # Stage 4: Transcribe (using isolated vocals for cleaner input)
+            tracker.start_stage("transcribe", "Loading Whisper model...")
+            update()
+            segments = transcribe_audio(vocals_path, tracker, update)
             total_chars = sum(len(s["text"]) for s in segments)
             tracker.complete_stage("transcribe", f"{len(segments)} segments, {total_chars} chars")
             update()
@@ -992,7 +1027,7 @@ def main():
             else:
                 total_duration = 0
 
-            # Stage 3: Translate (segment by segment)
+            # Stage 5: Translate (segment by segment)
             tracker.start_stage("translate", "Starting translation...")
             update()
             translated_segments = translate_segments(segments, lang_name, tracker, update)
@@ -1000,18 +1035,56 @@ def main():
             tracker.complete_stage("translate", f"{len(translated_segments)} segments translated")
             update()
 
-            # Stage 4: Voice synthesis (segment by segment with time-stretching)
+            # Stage 6: Voice synthesis (multi-speaker with per-speaker voice samples)
             tracker.start_stage("synthesize", "Loading TTS model...")
             update()
-            new_audio = synthesize_segments(translated_segments, audio_path, lang_code, total_duration, tracker, update)
-            tracker.complete_stage("synthesize", f"Generated {new_audio.name}")
+            if num_speakers > 1 and speaker_samples:
+                # Use multi-speaker synthesis
+                speech_audio = synthesize_segments_multi_speaker(
+                    translated_segments,
+                    diarization_segments,
+                    speaker_samples,
+                    lang_code,
+                    total_duration,
+                    tracker,
+                    update,
+                )
+            elif speaker_samples:
+                # Single speaker - use the one speaker sample
+                first_speaker = next(iter(speaker_samples))
+                voice_sample = speaker_samples[first_speaker]
+                speech_audio = synthesize_segments(
+                    translated_segments, voice_sample, lang_code, total_duration, tracker, update
+                )
+            else:
+                # Fallback to original audio as voice sample
+                speech_audio = synthesize_segments(
+                    translated_segments, audio_path, lang_code, total_duration, tracker, update
+                )
+            tracker.complete_stage("synthesize", f"Generated {speech_audio.name}")
             update()
 
-            # Stage 5: Merge
-            tracker.start_stage("merge", "Starting merge...")
+            # Stage 7: Mix audio (translated speech + original background)
+            tracker.start_stage("mix", "Mixing speech with background audio...")
+            update()
+            mixed_audio = mix_audio_with_background(
+                speech_audio, background_path, background_volume=0.3
+            )
+            tracker.complete_stage("mix", f"Mixed: {mixed_audio.name}")
+            update()
+
+            # Stage 8: Generate subtitles and merge everything
+            tracker.start_stage("merge", "Generating subtitles...")
+            update()
+            subtitle_path = generate_srt(translated_segments)
+            tracker.update_detail("merge", "Merging video, audio, and subtitles...")
             update()
             safe_title = "".join(c for c in title if c.isalnum() or c in " -_")[:50]
-            output = merge_audio_video(video_path, new_audio, safe_title, tracker, update)
+            subtitle_lang_code = get_iso_639_2_code(lang_code)
+            output = merge_audio_video(
+                video_path, mixed_audio, safe_title, tracker, update,
+                subtitle_path=subtitle_path, subtitle_lang=subtitle_lang_code
+            )
             tracker.complete_stage("merge", f"Output: {output.name}")
             update()
 
