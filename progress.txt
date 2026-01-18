@@ -206,3 +206,39 @@
 - Timestamps can be either string format (0:00:05.2) or numeric - handle both
 - The video_info dict continues as the pattern for passing data between cells
 
+
+## US-008: Create voice sample extraction cell - COMPLETE
+
+**Date:** 2026-01-18
+**Files changed:**
+- debug_pipeline.ipynb (modified - added 2 cells)
+
+**Implementation notes:**
+- Added markdown cell (Cell 15) explaining voice sample extraction:
+  - Why voice samples are needed for Chatterbox voice cloning
+  - Sample selection strategy (longest segment per speaker)
+  - Duration requirements (MIN_VOICE_SAMPLE_DURATION to MAX_VOICE_SAMPLE_DURATION)
+  - ffmpeg extraction command breakdown
+- Added code cell (Cell 16) with voice sample extraction:
+  - extract_speaker_samples() function that:
+    - Groups diarization segments by speaker ID
+    - Finds longest segment for each speaker
+    - Skips segments shorter than MIN_VOICE_SAMPLE_DURATION
+    - Extracts samples using ffmpeg with -ss and -t flags
+    - Returns dict mapping speaker_id to sample path
+  - Uploads samples to Replicate using replicate.files.create()
+  - Builds speaker_voice_urls dictionary with signed URLs
+  - Displays formatted summary table with durations and file sizes
+  - Shows speaker_voice_urls dictionary contents
+  - Comprehensive error handling with fallback to single-speaker mode
+  - Stores speaker_samples and speaker_voice_urls in video_info dict
+- All code cells pass Python syntax validation via ast.parse()
+- Typecheck passes for helper modules
+
+**Learnings:**
+- MIN_VOICE_SAMPLE_DURATION (3.0s) and MAX_VOICE_SAMPLE_DURATION (12.0s) from config.py
+- cloud_translate.py has extract_speaker_samples_ffmpeg() which we adapted
+- Using replicate.files.create() for sample uploads (same pattern as diarization)
+- Speakers with all segments below min_duration are skipped silently
+- The get_audio_duration() helper from Cell 10 is reused for sample duration display
+
