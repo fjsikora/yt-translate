@@ -436,3 +436,34 @@
 - Preview should truncate long subtitle text for readability
 - Empty segments should be skipped to avoid blank subtitle entries
 
+
+## US-015: Create final video merge cell - COMPLETE
+
+**Date:** 2026-01-18
+**Files changed:**
+- debug_pipeline.ipynb (modified - added 2 cells: Cell 29 markdown, Cell 30 code)
+
+**Implementation notes:**
+- Added markdown cell (Cell 29) explaining final video merge:
+  - ffmpeg command structure for merging video, audio, and subtitles
+  - Complete options table (-c:v copy, -c:a aac, -c:s mov_text, -map flags)
+  - Soft subtitles vs hard subtitles comparison table
+  - Output description and file size expectations
+
+- Added code cell (Cell 30) with video merge:
+  - Prerequisite checks for video_path, mixed_audio_path
+  - Optional subtitle_path handling (works with or without subtitles)
+  - Title sanitization for filename safety (alphanumeric + spaces, hyphens, underscores)
+  - get_iso_639_2_code() for subtitle language metadata
+  - Two ffmpeg command variants: with subtitles (3 inputs, mov_text) and without subtitles (2 inputs)
+  - Displays input file info (size) and output summary
+  - Shows merge timing and total pipeline time if pipeline_start_time is available
+  - Stores final_output_path in video_info dict
+  - Comprehensive error handling for subprocess and ffmpeg failures
+
+**Learnings:**
+- mov_text codec is the standard for soft subtitles in MP4 containers
+- The -shortest flag ensures output matches shortest input (prevents extra silence/frames)
+- ISO 639-2 (3-letter) codes are required for ffmpeg subtitle language metadata
+- get_audio_duration() helper works for video files too (ffprobe extracts audio duration)
+

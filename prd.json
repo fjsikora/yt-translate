@@ -248,8 +248,8 @@
         "Typecheck passes"
       ],
       "priority": 15,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 15. Added final video merge cells (Cell 29 markdown, Cell 30 code) with ffmpeg merge, soft subtitle embedding via mov_text codec, and pipeline timing display."
     },
     {
       "id": "US-016",
