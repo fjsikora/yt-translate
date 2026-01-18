@@ -112,3 +112,30 @@
 - video_info dict is the standard pattern for passing data between cells
 - Previous cell's video_info must be checked before proceeding
 
+
+## US-005: Create audio extraction cell - COMPLETE
+
+**Date:** 2026-01-18
+**Files changed:**
+- debug_pipeline.ipynb (modified - added 2 cells)
+
+**Implementation notes:**
+- Added markdown cell (Cell 9) explaining audio extraction:
+  - Why 16kHz mono PCM is used for Whisper
+  - ffmpeg command breakdown with flag descriptions
+  - Expected file size calculation
+- Added code cell (Cell 10) with audio extraction:
+  - WHISPER_SAMPLE_RATE constant (16000 Hz)
+  - get_audio_duration() helper using ffprobe
+  - ffmpeg extraction: -vn -acodec pcm_s16le -ar 16000 -ac 1
+  - Displays audio path, duration, file size
+  - Stores audio_path and audio_duration in video_info dict
+  - Comprehensive error handling
+- All code cells pass Python syntax validation via ast.parse()
+- Typecheck passes for helper modules (config.py, languages.py, utils/audio_helpers.py)
+
+**Learnings:**
+- ffprobe can extract audio duration with -show_entries format=duration
+- WAV file size ≈ duration × sample_rate × 2 bytes + 44 bytes header
+- The video_info dictionary continues to be the data-passing pattern between cells
+
