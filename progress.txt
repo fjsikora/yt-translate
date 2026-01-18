@@ -51,3 +51,31 @@
 - languages.py SUPPORTED_LANGUAGES contains 24 language codes
 - get_language_name() helper function available from languages.py for display
 
+
+## US-003: Create video info retrieval cell - COMPLETE
+
+**Date:** 2026-01-18
+**Files changed:**
+- debug_pipeline.ipynb (modified - added 2 cells)
+
+**Implementation notes:**
+- Added markdown cell (Cell 3) explaining yt-dlp info extraction:
+  - How extract_info() works with download=False
+  - Price calculation formula (ceil(duration/60) * rate)
+  - Common error scenarios and their causes
+- Added code cell with video info retrieval:
+  - Uses yt_dlp.YoutubeDL with get_ytdlp_opts() for optional proxy/cookies
+  - Extracts title, duration, video_id, thumbnail from info dict
+  - calculate_price_cents() function for pricing (PRICE_PER_MINUTE_CENTS default 50)
+  - format_duration() helper for human-readable time display
+  - Stores video_info dict for use in later cells
+  - Comprehensive error handling for DownloadError and general exceptions
+  - Shows price adjustment note when DURATION_LIMIT is set
+- Typecheck passes for helper modules (config.py, languages.py, utils/audio_helpers.py)
+
+**Learnings:**
+- PRICE_PER_MINUTE_CENTS is configurable via environment variable (default: 50 cents)
+- yt-dlp provides extractor field to identify the source platform
+- thumbnail may be in info['thumbnail'] or info['thumbnails'][-1]['url']
+- video_info dictionary pattern useful for passing data between cells
+
