@@ -242,3 +242,36 @@
 - Speakers with all segments below min_duration are skipped silently
 - The get_audio_duration() helper from Cell 10 is reused for sample duration display
 
+
+## US-009: Create transcription cell - COMPLETE
+
+**Date:** 2026-01-18
+**Files changed:**
+- debug_pipeline.ipynb (modified - added 2 cells)
+
+**Implementation notes:**
+- Added markdown cell (Cell 17) explaining transcription:
+  - Whisper API parameters (model, file, response_format, timestamp_granularities)
+  - verbose_json response format structure
+  - Segment structure (start, end, text, tokens, temperature)
+  - Typical processing times for different audio lengths
+- Added code cell (Cell 18) with transcription implementation:
+  - Calls openai_client.audio.transcriptions.create() with whisper-1 model
+  - Uses verbose_json response format with segment timestamp granularity
+  - Parses segments handling both dict and object access patterns
+  - Extracts detected_language, audio_duration, and full_text from response
+  - Displays transcription summary (language, duration, segment count, character count)
+  - Shows full transcript preview (first 500 characters)
+  - Displays formatted segment table with index, start, end, and text columns
+  - Shows API call timing and processing ratio (vs real-time)
+  - Stores transcription_segments, detected_language, full_transcript in video_info dict
+  - Comprehensive error handling for API failures
+- All code cells pass Python syntax validation via ast.parse()
+- Typecheck passes for helper modules
+
+**Learnings:**
+- OpenAI Whisper API returns both object and dict formats depending on version
+- verbose_json includes segments with timestamps when timestamp_granularities is set
+- Processing ratio (api_time/audio_duration) is useful for benchmarking
+- The transcription_segments format matches cloud_translate.py: {start, end, text, duration}
+
