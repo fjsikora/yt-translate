@@ -172,3 +172,37 @@
 - Use synchronous httpx.Client in Jupyter (async httpx requires special event loop handling)
 - The "other" stem from Demucs contains background music/effects to mix back later
 
+
+## US-007: Create speaker diarization cell - COMPLETE
+
+**Date:** 2026-01-18
+**Files changed:**
+- debug_pipeline.ipynb (modified - added 2 cells)
+
+**Implementation notes:**
+- Added markdown cell (Cell 13) explaining speaker diarization:
+  - What speaker diarization is ("who spoke when?")
+  - How the model detects speech regions, clusters speakers, assigns labels
+  - Replicate API details (requires URL input, not base64)
+  - Speaker label format conversion (A,B,C -> SPEAKER_00,01,02)
+  - Typical processing times for different audio lengths
+- Added code cell (Cell 14) with speaker diarization:
+  - Uses replicate.files.create() to upload vocals file (diarization model requires URL)
+  - Calls REPLICATE_MODEL_DIARIZATION (meronym/speaker-diarization)
+  - Handles FileOutput objects and URL string outputs from Replicate
+  - Parses segments with parse_timestamp() for string timestamps
+  - Converts speaker labels from single letters to SPEAKER_XX format
+  - Calculates and displays per-speaker statistics (segment count, total duration)
+  - Displays formatted segment table with speaker, start, end, duration columns
+  - Stores diarization_segments and num_speakers in video_info dict
+  - Comprehensive error handling with fallback to single-speaker mode
+- All code cells pass Python syntax validation via ast.parse()
+- Typecheck passes for helper modules
+
+**Learnings:**
+- The speaker-diarization model requires a URL input, not base64 data URI like Demucs
+- replicate.files.create(file=path) uploads files and returns object with urls['get']
+- Diarization output may use "stop" or "end" for segment end time - handle both
+- Timestamps can be either string format (0:00:05.2) or numeric - handle both
+- The video_info dict continues as the pattern for passing data between cells
+
