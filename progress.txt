@@ -79,3 +79,36 @@
 - thumbnail may be in info['thumbnail'] or info['thumbnails'][-1]['url']
 - video_info dictionary pattern useful for passing data between cells
 
+
+## US-004: Create video download cell - COMPLETE
+
+**Date:** 2026-01-18
+**Files changed:**
+- debug_pipeline.ipynb (modified - added 2 cells)
+
+**Implementation notes:**
+- Added markdown cell (Cell 4) explaining video download process:
+  - Format selection (bestvideo+bestaudio/best)
+  - Merge output format (MP4 container)
+  - Duration trimming with ffmpeg stream copy
+  - File output details
+- Added code cell with video download implementation:
+  - format_file_size() helper for human-readable file sizes
+  - Uses yt-dlp with configured options from get_ytdlp_opts()
+  - Creates job directory under OUTPUT_DIR using video_id
+  - Downloads video with progress display (quiet=False for debugging)
+  - Finds downloaded file (checks mp4, mkv, webm extensions)
+  - Applies ffmpeg duration trimming when DURATION_LIMIT is set:
+    - Uses stream copy (-c:v copy -c:a copy) for fast trimming
+    - Replaces original with trimmed version
+    - Shows size reduction percentage
+  - Stores video_path and actual_duration in video_info dict
+  - Comprehensive error handling for subprocess, yt-dlp, and general errors
+- Typecheck passes for helper modules
+
+**Learnings:**
+- yt-dlp may download as mp4, mkv, or webm depending on source
+- ffmpeg stream copy is very fast but can only cut at keyframes
+- video_info dict is the standard pattern for passing data between cells
+- Previous cell's video_info must be checked before proceeding
+
