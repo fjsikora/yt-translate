@@ -275,3 +275,34 @@
 - Processing ratio (api_time/audio_duration) is useful for benchmarking
 - The transcription_segments format matches cloud_translate.py: {start, end, text, duration}
 
+
+## US-010: Create translation cell - COMPLETE
+
+**Date:** 2026-01-18
+**Files changed:**
+- debug_pipeline.ipynb (modified - added 2 cells)
+
+**Implementation notes:**
+- Added markdown cell (Cell 19) explaining LLM translation:
+  - Why use LLM vs traditional translation (context, consistency, natural phrasing)
+  - Batching strategy parameters (LLM_MAX_SEGMENTS_PER_BATCH=50, LLM_BATCH_OVERLAP=5)
+  - Prompt format using numbered lines for segment tracking
+  - Output structure description
+- Added code cell (Cell 20) with translation implementation:
+  - translate_batch_llm() function that builds prompt, calls Replicate LLM, parses response
+  - Uses REPLICATE_MODEL_LLAMA (meta/meta-llama-3.1-405b-instruct)
+  - Handles streaming output from replicate.run()
+  - Batching logic for long videos (>50 segments split into overlapping batches)
+  - Displays Translation Comparison table with original vs translated text
+  - Shows timing summary (API calls, total time, average per batch)
+  - Stores translated_segments in video_info dict for later cells
+  - Comprehensive error handling for Replicate API failures
+- All code cells pass Python syntax validation via ast.parse()
+- Typecheck passes for helper modules (config.py, languages.py, utils/audio_helpers.py)
+
+**Learnings:**
+- Replicate LLM output may be streaming iterator or string - handle both with hasattr check
+- Numbered line format (e.g., "0: text") allows reliable parsing of translations back to segments
+- Batch overlap ensures context continuity - later batches overwrite overlap regions
+- LANG_NAMES dict from languages.py provides human-readable names for LLM prompt
+
