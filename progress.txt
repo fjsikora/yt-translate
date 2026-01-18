@@ -139,3 +139,36 @@
 - WAV file size ≈ duration × sample_rate × 2 bytes + 44 bytes header
 - The video_info dictionary continues to be the data-passing pattern between cells
 
+
+## US-006: Create audio separation cell - COMPLETE
+
+**Date:** 2026-01-18
+**Files changed:**
+- debug_pipeline.ipynb (modified - added 2 cells)
+
+**Implementation notes:**
+- Added markdown cell (Cell 11) explaining Demucs audio separation:
+  - Why separating vocals improves transcription quality
+  - Demucs model outputs (vocals, drums, bass, other)
+  - API parameters (audio as base64 data URI, output_format)
+  - Typical processing times for different audio lengths
+- Added code cell (Cell 12) with audio separation:
+  - Imports base64 module for encoding audio
+  - Encodes audio file as base64 data URI for Replicate API
+  - Calls REPLICATE_MODEL_DEMUCS with wav output format
+  - Handles FileOutput objects from Replicate v1.0+
+  - Uses synchronous httpx.Client for Jupyter compatibility
+  - Downloads vocals.wav and background.wav (other stem)
+  - Displays API call timing and download timing separately
+  - Shows file sizes for both stems
+  - Stores vocals_path and background_path in video_info dict
+  - Includes fallback error handling (uses original audio if separation fails)
+- All code cells pass Python syntax validation via ast.parse()
+- Typecheck passes for helper modules
+
+**Learnings:**
+- Replicate Demucs API expects audio as base64 data URI (data:mime/type;base64,...)
+- FileOutput objects from Replicate v1.0+ need .url attribute to get download URL
+- Use synchronous httpx.Client in Jupyter (async httpx requires special event loop handling)
+- The "other" stem from Demucs contains background music/effects to mix back later
+
