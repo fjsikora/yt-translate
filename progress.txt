@@ -306,3 +306,38 @@
 - Batch overlap ensures context continuity - later batches overwrite overlap regions
 - LANG_NAMES dict from languages.py provides human-readable names for LLM prompt
 
+
+## US-011: Create single-speaker synthesis cell - COMPLETE
+
+**Date:** 2026-01-18
+**Files changed:**
+- debug_pipeline.ipynb (modified - added 2 cells: Cell 21 markdown, Cell 22 code)
+
+**Implementation notes:**
+- Added markdown cell (Cell 11) explaining single-speaker synthesis:
+  - When to use: single-speaker content, faster processing, fallback mode
+  - Chatterbox API parameters: text, language, reference_audio, cfg_weight, exaggeration
+  - Voice sample selection strategy (first available or fallback to vocals)
+  - Output format: 24kHz WAV (Chatterbox native sample rate)
+
+- Added code cell with Chatterbox TTS implementation:
+  - Conditional execution: Only runs when USE_MULTI_SPEAKER is False
+  - Combines all translated text using " ".join() on translated_text fields
+  - Voice sample selection: Uses first available from speaker_voice_urls dict
+  - Fallback: Uploads vocals file to Replicate if no voice samples available
+  - Calls REPLICATE_MODEL_CHATTERBOX with cfg_weight and exaggeration parameters
+  - Handles FileOutput (v1.0+), URL string, and iterator output types
+  - Saves output as translated_audio_single.wav in job directory
+  - Displays: output path, file size, duration, sample rate
+  - Shows timing: API call time, download time, total, real-time factor
+  - Comprehensive error handling for Replicate and httpx failures
+  - Stores paths in video_info dict for downstream cells
+
+**Learnings:**
+- Chatterbox API accepts: text, language, reference_audio, cfg_weight, exaggeration
+- cfg_weight (0-1): higher = slower/more stable speech
+- exaggeration (0-1): higher = more expressive voice
+- Output is 24kHz WAV (CHATTERBOX_SAMPLE_RATE constant from config.py)
+- Replicate FileOutput can be iterated for streaming download (for chunk in output)
+- The video_info dict pattern continues for storing synthesized_audio_path
+
