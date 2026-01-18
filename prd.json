@@ -1,179 +1,271 @@
 {
-  "project": "codebase-refactoring",
-  "branchName": "ralph/codebase-refactoring",
-  "description": "Systematically refactor the yt-translate codebase to reduce technical debt, eliminate code duplication, and improve maintainability while maintaining backwards compatibility with existing API contracts.",
+  "project": "jupyter-debug-notebook",
+  "branchName": "ralph/jupyter-debug-notebook",
+  "description": "Create a Jupyter notebook version of cloud_translate.py for debugging translation quality issues, with each pipeline stage broken into separate cells with markdown explanations and intermediate output display.",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Create Shared Languages Module",
-      "description": "As a developer, I want language mappings in a single shared module so that I don't have duplicate dictionaries across files.",
+      "title": "Create notebook with setup and configuration cell",
+      "description": "As a developer, I want a notebook that loads dependencies and configuration from environment variables so that I can run the pipeline in an isolated debugging environment.",
       "acceptanceCriteria": [
-        "New file `languages.py` created in project root",
-        "Contains `SUPPORTED_LANGUAGES`, `GOOGLE_LANG_CODES`, `ISO_639_1_TO_639_2`, `LANG_NAMES` dictionaries",
-        "`cloud_translate.py` imports from `languages.py` instead of defining locally",
-        "`translate.py` imports from `languages.py` instead of defining locally",
-        "All language-related functionality works identically",
-        "Typecheck passes"
+        "Notebook imports all required dependencies (yt-dlp, openai, replicate, deep_translator, etc.)",
+        "Environment variables loaded via dotenv",
+        "API clients initialized (OpenAI, Replicate)",
+        "Configuration variables displayed (OUTPUT_DIR, API key status, model names)",
+        "Helper functions from cloud_translate.py available (parse_timestamp, etc.)",
+        "Markdown cell explains what each import/config does",
+        "Typecheck passes (for any .py helper modules)"
       ],
       "priority": 1,
       "passes": true,
-      "notes": "Completed in iteration 1. Created languages.py with all dictionaries and both files import from it."
+      "notes": "Completed in iteration 1. Created debug_pipeline.ipynb with setup and configuration cell."
     },
     {
       "id": "US-002",
-      "title": "Add Proper Logging Infrastructure",
-      "description": "As a developer, I want proper logging with configurable levels so that I can debug issues effectively in production.",
+      "title": "Create input configuration cell",
+      "description": "As a developer, I want a cell where I can specify the video URL, target language, and processing options so that I can easily test different inputs.",
       "acceptanceCriteria": [
-        "Logger configured at top of `cloud_translate.py`",
-        "All 19 `print()` statements replaced with appropriate `logger.info()`, `logger.warning()`, or `logger.error()` calls",
-        "Log level configurable via `LOG_LEVEL` environment variable",
-        "Logs include job_id context where applicable",
+        "Cell defines VIDEO_URL, TARGET_LANGUAGE, and DURATION_LIMIT variables",
+        "Toggle variable USE_MULTI_SPEAKER (True/False) for synthesis mode selection",
+        "Markdown explains supported URL formats and language codes",
+        "Example values provided as comments",
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": true,
-      "notes": "Completed in iteration 2. Replaced 22 print statements (not 19 as originally stated) with logger calls."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-003",
-      "title": "Extract Configuration Constants",
-      "description": "As a developer, I want all magic numbers in named constants so that configuration is centralized and self-documenting.",
+      "title": "Create video info retrieval cell",
+      "description": "As a developer, I want to fetch and display video metadata before downloading so that I can verify the correct video is being processed.",
       "acceptanceCriteria": [
-        "New `config.py` file created with all constants",
-        "Constants include: GOOGLE_TRANSLATE_CHUNK_SIZE, LLM_MAX_SEGMENTS_PER_BATCH, LLM_BATCH_OVERLAP, LLM_MAX_TOKENS, LLM_TEMPERATURE, CHATTERBOX_SAMPLE_RATE, VOICE_SAMPLE_DURATION_SECONDS, MIN_VOICE_SAMPLE_DURATION, MAX_VOICE_SAMPLE_DURATION, SIGNED_URL_EXPIRATION",
-        "All hardcoded Replicate model names moved to config",
-        "`cloud_translate.py` imports and uses constants from `config.py`",
+        "Cell uses yt-dlp to extract video info without downloading",
+        "Displays: title, duration, video ID, thumbnail URL",
+        "Shows estimated price calculation",
+        "Handles errors gracefully with informative messages",
+        "Markdown explains yt-dlp info extraction",
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": "Completed in iteration 3. Created config.py with all constants plus additional ones (SIGNED_URL_EXPIRATION_LONG, CHATTERBOX_CFG_WEIGHT, CHATTERBOX_EXAGGERATION, BACKGROUND_VOLUME_DEFAULT). All 4 Replicate model names extracted."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-004",
-      "title": "Extract Access Control Helper",
-      "description": "As a developer, I want access control logic in a reusable function so that I don't have duplicate permission checks.",
+      "title": "Create video download cell",
+      "description": "As a developer, I want to download the video file so that I can inspect the source material.",
       "acceptanceCriteria": [
-        "New function `verify_preview_access(preview_job, session_id, user_id)` created",
-        "Function raises `HTTPException(403)` if access denied",
-        "Both `get_preview_status` and `get_preview_video` endpoints use this helper",
-        "Original behavior preserved exactly",
+        "Downloads video using yt-dlp with configured options",
+        "Applies duration limit trimming via ffmpeg if DURATION_LIMIT is set",
+        "Displays download progress and final file size",
+        "Shows path to downloaded video file",
+        "Markdown explains download process and format selection",
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "Completed in iteration 4. Created verify_preview_access helper function that extracts duplicate access control logic from both endpoints."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-005",
-      "title": "Extract Audio Helper Functions",
-      "description": "As a developer, I want audio utility functions in a separate module so that they are testable and reusable.",
+      "title": "Create audio extraction cell",
+      "description": "As a developer, I want to extract audio from the video so that I can inspect the audio before processing.",
       "acceptanceCriteria": [
-        "New file `utils/audio_helpers.py` created",
-        "Contains `read_wav_file(path) -> tuple[int, np.ndarray]`",
-        "Contains `write_wav_file(path, sample_rate, audio_data)`",
-        "Contains `resample_audio(audio, orig_sr, target_sr) -> np.ndarray`",
-        "Functions extracted from `synthesize_segments_multi_speaker`",
-        "`synthesize_segments_multi_speaker` imports and uses these functions",
+        "Extracts audio using ffmpeg (16kHz, mono, PCM)",
+        "Displays audio file path and duration",
+        "Shows audio file size",
+        "Markdown explains audio format requirements for Whisper",
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "Completed in iteration 5. Created utils/audio_helpers.py with all 3 functions. Removed 50 lines of inline function definitions from cloud_translate.py."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-006",
-      "title": "Consolidate Storage Upload Functions",
-      "description": "As a developer, I want a single generic upload function so that storage logic isn't duplicated.",
+      "title": "Create audio separation cell",
+      "description": "As a developer, I want to separate vocals from background music so that I can verify the separation quality.",
       "acceptanceCriteria": [
-        "New function `upload_to_storage(bucket, job_id, file_path, filename, content_type) -> str` in db.py",
-        "`upload_preview_to_storage`, `upload_translation_to_storage`, `upload_voice_sample` refactored to use generic function",
-        "Original function signatures preserved as wrappers for backwards compatibility",
-        "All uploads work identically",
+        "Calls Replicate Demucs API for audio separation",
+        "Downloads and saves vocals.wav and background.wav",
+        "Displays file paths for both stems",
+        "Shows API call timing",
+        "Markdown explains Demucs separation and why it improves transcription",
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": "Completed in iteration 6. Created generic upload_to_storage function. All 3 upload functions now use it as wrappers. Consolidated VOICE_SAMPLES_BUCKET constant. Net reduction of ~48 lines."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-007",
-      "title": "Consolidate Signed URL Functions",
-      "description": "As a developer, I want a single generic signed URL function so that URL generation logic isn't duplicated.",
+      "title": "Create speaker diarization cell",
+      "description": "As a developer, I want to identify different speakers in the audio so that I can verify speaker detection accuracy.",
       "acceptanceCriteria": [
-        "New function `get_signed_url(bucket, storage_path, expires_in=3600) -> str` in db.py",
-        "`get_preview_signed_url`, `get_translation_signed_url`, `get_voice_sample_signed_url` refactored to use generic function",
-        "Original function signatures preserved as wrappers for backwards compatibility",
-        "All signed URL generation works identically",
+        "Uploads vocals to storage for API access",
+        "Calls Replicate speaker-diarization API",
+        "Parses and displays diarization segments with speaker labels",
+        "Shows number of speakers detected",
+        "Displays segment list as formatted table (speaker, start, end, duration)",
+        "Markdown explains diarization and speaker label format",
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": true,
-      "notes": "Completed in iteration 7. Created generic get_signed_url function. All 3 signed URL functions now use it as wrappers."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-008",
-      "title": "Create Unified Pipeline Function",
-      "description": "As a developer, I want a single parameterized pipeline function so that the 3 duplicate processing functions are consolidated.",
+      "title": "Create voice sample extraction cell",
+      "description": "As a developer, I want to extract voice samples for each speaker so that I can verify voice cloning input quality.",
       "acceptanceCriteria": [
-        "New function `process_video_translation(job_id, video_url, target_language, duration_limit, job_type)` created",
-        "`job_type` parameter accepts: 'preview', 'paid', 'legacy'",
-        "Function uses appropriate DB update callback based on job_type",
-        "`process_translation`, `process_preview`, `process_full_translation` refactored to call unified function",
-        "Original function signatures preserved for backwards compatibility",
-        "All three job types process identically to before",
+        "Extracts longest segment for each speaker using ffmpeg",
+        "Saves samples as {SPEAKER_ID}_sample.wav files",
+        "Uploads samples to storage and gets signed URLs",
+        "Displays speaker_voice_urls dictionary",
+        "Shows sample durations for each speaker",
+        "Markdown explains voice sample requirements for Chatterbox",
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": true,
-      "notes": "Completed in iteration 8. Created process_video_translation with JobType literal type. All 3 functions refactored as wrappers. Net reduction of 69 lines."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-009",
-      "title": "Add Unit Tests for Audio Helpers",
-      "description": "As a developer, I want unit tests for audio helper functions so that refactoring doesn't break functionality.",
+      "title": "Create transcription cell",
+      "description": "As a developer, I want to transcribe the vocals so that I can inspect the raw transcription quality.",
       "acceptanceCriteria": [
-        "Test file `tests/test_audio_helpers.py` created",
-        "Tests for `read_wav_file` with valid WAV file",
-        "Tests for `write_wav_file` creates valid WAV file",
-        "Tests for `resample_audio` produces correct sample rate",
-        "All tests pass",
+        "Calls OpenAI Whisper API with verbose_json response",
+        "Parses segments with timestamps",
+        "Displays segments as formatted table (index, start, end, text)",
+        "Shows total segment count and detected language",
+        "Shows API call timing",
+        "Markdown explains Whisper API parameters and segment format",
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": true,
-      "notes": "Completed in iteration 9. Created tests/test_audio_helpers.py with 11 tests covering all 3 functions. Tests verify 16/32-bit WAV reading, stereo->mono conversion, valid WAV creation, roundtrip fidelity, value clipping, and resampling at various rates."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-010",
-      "title": "Add Unit Tests for Language Module",
-      "description": "As a developer, I want tests verifying language mappings are complete and consistent.",
+      "title": "Create translation cell",
+      "description": "As a developer, I want to translate the transcribed segments so that I can compare original and translated text side-by-side.",
       "acceptanceCriteria": [
-        "Test file `tests/test_languages.py` created",
-        "Test that all `SUPPORTED_LANGUAGES` keys exist in `GOOGLE_LANG_CODES`",
-        "Test that all language codes are valid ISO 639-1 codes",
-        "All tests pass",
+        "Calls Replicate LLM for context-aware translation (batched if needed)",
+        "Displays translated segments as table (index, original_text, translated_text)",
+        "Shows translation comparison for quality inspection",
+        "Shows API call timing and batch count",
+        "Markdown explains LLM translation approach and batching strategy",
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": true,
-      "notes": "Completed in iteration 10. Created tests/test_languages.py with 24 tests covering consistency between dictionaries, ISO 639-1 validation, inverted mapping tests, and helper function tests."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-011",
-      "title": "Add Integration Test for Pipeline",
-      "description": "As a developer, I want an integration test ensuring the unified pipeline works correctly.",
+      "title": "Create single-speaker synthesis cell",
+      "description": "As a developer, I want a cell that synthesizes all text with a single voice so that I can compare against multi-speaker output.",
       "acceptanceCriteria": [
-        "Test file `tests/test_pipeline.py` created",
-        "Test that `process_video_translation` with job_type='preview' matches old behavior",
-        "Test that `process_video_translation` with job_type='paid' matches old behavior",
-        "Mock external APIs (Replicate, OpenAI) in tests",
-        "All tests pass",
+        "Only executes if USE_MULTI_SPEAKER is False",
+        "Combines all translated text",
+        "Calls Chatterbox API with first available voice sample",
+        "Saves output as translated_audio_single.wav",
+        "Displays audio file path and duration",
+        "Shows API call timing",
+        "Markdown explains single-speaker synthesis fallback mode",
         "Typecheck passes"
       ],
       "priority": 11,
-      "passes": true,
-      "notes": "Completed in iteration 11. Created tests/test_pipeline.py with 11 integration tests covering preview, paid, and legacy job types. Tests verify correct DB function calls, storage uploads, error handling, and backwards-compatible wrappers. Added pytest.ini for pytest-asyncio configuration."
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Create multi-speaker synthesis cell",
+      "description": "As a developer, I want to synthesize each segment with the matched speaker's voice so that I can verify voice cloning and timing.",
+      "acceptanceCriteria": [
+        "Only executes if USE_MULTI_SPEAKER is True",
+        "Matches each segment to speaker via diarization overlap",
+        "Calls Chatterbox API for each segment with matched voice",
+        "Displays progress during synthesis (segment X of Y)",
+        "Shows segment-to-speaker mapping as table",
+        "Combines segments with adjusted timing (no overlap)",
+        "Saves output as translated_audio_multi.wav",
+        "Markdown explains speaker matching algorithm and timing adjustment",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Create audio mixing cell",
+      "description": "As a developer, I want to mix the translated speech with background audio so that I can verify the mix levels.",
+      "acceptanceCriteria": [
+        "Mixes translated speech (100%) with background (30% default)",
+        "Allows configurable BACKGROUND_VOLUME variable",
+        "Saves output as mixed_audio.wav",
+        "Displays file path and duration",
+        "Markdown explains mixing process and volume levels",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Create subtitle generation cell",
+      "description": "As a developer, I want to generate SRT subtitles so that I can verify subtitle timing and content.",
+      "acceptanceCriteria": [
+        "Generates SRT file from translated segments",
+        "Displays first 10 subtitle entries as preview",
+        "Shows total subtitle count",
+        "Saves output as subtitles.srt",
+        "Markdown explains SRT format and timestamp conversion",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Create final video merge cell",
+      "description": "As a developer, I want to merge the translated audio with the original video so that I can produce the final output.",
+      "acceptanceCriteria": [
+        "Merges video with mixed audio using ffmpeg",
+        "Embeds subtitles as soft subs (mov_text codec)",
+        "Saves output as {title}_translated.mp4",
+        "Displays final output path and file size",
+        "Shows total pipeline execution time",
+        "Markdown explains ffmpeg merge command and subtitle embedding",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Create summary and comparison cell",
+      "description": "As a developer, I want a final summary cell that displays timing for all stages so that I can identify bottlenecks.",
+      "acceptanceCriteria": [
+        "Displays timing breakdown for each pipeline stage",
+        "Shows total execution time",
+        "Lists all output file paths",
+        "Provides quality checklist (items to manually verify)",
+        "Markdown summarizes the full pipeline and suggests debugging approaches",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
     }
   ]
 }
