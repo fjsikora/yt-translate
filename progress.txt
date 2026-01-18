@@ -405,3 +405,34 @@
 - The video_info dict pattern continues (mixed_audio_path stored for final video merge)
 - BACKGROUND_VOLUME_DEFAULT (0.3) from config.py is the standard value
 
+
+## US-014: Create subtitle generation cell - COMPLETE
+
+**Date:** 2026-01-18
+**Files changed:**
+- debug_pipeline.ipynb (modified - added 2 cells: Cell 27 markdown, Cell 28 code)
+
+**Implementation notes:**
+- Added markdown cell (Cell 27) explaining SRT format:
+  - SRT structure (index, timestamp, text, blank line separator)
+  - Timestamp format with comma separator (HH:MM:SS,mmm)
+  - Why generate SRT (accessibility, SEO, soft subs, easy editing)
+  - Implementation reference to format_timestamp_srt() from Cell 1
+
+- Added code cell (Cell 28) with subtitle generation:
+  - Iterates through translated_segments from video_info dict
+  - Uses format_timestamp_srt() for timestamp conversion
+  - Builds SRT content line by line (index, timestamps, text, blank)
+  - Skips empty segments with count tracking
+  - Saves output as subtitles.srt in job directory (UTF-8 encoding)
+  - Displays first 10 subtitle entries as preview (truncates long text to 80 chars)
+  - Shows total subtitle count and file size
+  - Stores subtitle_path in video_info dict for downstream cells
+  - Comprehensive error handling for IOError and general exceptions
+
+**Learnings:**
+- SRT uses comma before milliseconds (not period) - format_timestamp_srt() handles this
+- Video_info dict pattern continues (subtitle_path stored for final video merge)
+- Preview should truncate long subtitle text for readability
+- Empty segments should be skipped to avoid blank subtitle entries
+
