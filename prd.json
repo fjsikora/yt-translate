@@ -215,8 +215,8 @@
         "Typecheck passes"
       ],
       "priority": 13,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 13. Added audio mixing cells (Cell 25 markdown, Cell 26 code) with ffmpeg amix filter, configurable BACKGROUND_VOLUME, and stereo output."
     },
     {
       "id": "US-014",

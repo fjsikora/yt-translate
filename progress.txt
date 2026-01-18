@@ -374,3 +374,34 @@
 - Always normalize (max_val > 0.99 check) before saving combined audio
 - The video_info dict continues as the data-passing pattern (multi_speaker_output, synthesized_audio_path)
 
+
+## US-013: Create audio mixing cell - COMPLETE
+
+**Date:** 2026-01-18
+**Files changed:**
+- debug_pipeline.ipynb (modified - added 2 cells: Cell 25 markdown, Cell 26 code)
+
+**Implementation notes:**
+- Added markdown cell (Cell 25) explaining audio mixing:
+  - ffmpeg amix filter breakdown with all components
+  - Volume configuration guide (0.1-0.5 typical values)
+  - Filter pipeline explanation: apad -> volume -> amix
+  - Output format description (stereo WAV)
+
+- Added code cell (Cell 26) with audio mixing:
+  - Uses BACKGROUND_VOLUME_DEFAULT from config.py (0.3 = 30%)
+  - Configurable BACKGROUND_VOLUME variable at top of cell
+  - Volume clamping to valid range (0.0 to 1.0)
+  - ffmpeg filter: [1:a]apad,volume={vol}[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0
+  - Output duration matches speech track (synthesized audio)
+  - Stereo output (-ac 2)
+  - Displays: input files info, output path, file size, duration, processing time
+  - Stores mixed_audio_path in video_info dict for downstream cells
+  - Comprehensive error handling for subprocess and ffmpeg failures
+
+**Learnings:**
+- ffmpeg amix filter combines two audio streams; duration=first uses first input's length
+- apad pads shorter audio with silence to match longer track
+- The video_info dict pattern continues (mixed_audio_path stored for final video merge)
+- BACKGROUND_VOLUME_DEFAULT (0.3) from config.py is the standard value
+
