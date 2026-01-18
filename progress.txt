@@ -341,3 +341,36 @@
 - Replicate FileOutput can be iterated for streaming download (for chunk in output)
 - The video_info dict pattern continues for storing synthesized_audio_path
 
+
+## US-012: Create multi-speaker synthesis cell - COMPLETE
+
+**Date:** 2026-01-18
+**Files changed:**
+- debug_pipeline.ipynb (modified - added 2 cells: Cell 24 markdown, Cell 25 code)
+
+**Implementation notes:**
+- Added markdown cell (Cell 24) explaining multi-speaker synthesis:
+  - When to use: multi-speaker content (interviews, conversations, podcasts)
+  - Speaker matching algorithm: finding maximum overlap between transcription and diarization segments
+  - Timing adjustment: each segment starts at max(original_start, previous_end) to prevent overlap
+  - Chatterbox API parameters table for per-segment synthesis
+
+- Added code cell (Cell 25) with multi-speaker synthesis:
+  - Conditional execution: Only runs when USE_MULTI_SPEAKER is True
+  - match_segment_to_speaker() function using overlap calculation with diarization segments
+  - Per-segment Chatterbox API calls with speaker-matched voice URLs
+  - Progress display: "Segment X/Y: SPEAKER_XX (start - end)"
+  - Segment-to-speaker mapping table with index, start, end, speaker, text preview
+  - Audio combination using positioned_audios with adjusted timing
+  - Normalization to prevent clipping
+  - Saves output as translated_audio_multi.wav
+  - Comprehensive error handling for Replicate API, httpx, and general failures
+  - Timing summary with total API time, average per segment, real-time factor
+
+**Learnings:**
+- The match_segment_to_speaker() pattern from cloud_translate.py works well for overlap calculation
+- positioned_audios list pattern useful for tracking adjusted start times before combining
+- numpy array operations for audio placement: output_audio[start_sample:start_sample + len(audio)] = audio
+- Always normalize (max_val > 0.99 check) before saving combined audio
+- The video_info dict continues as the data-passing pattern (multi_speaker_output, synthesized_audio_path)
+
