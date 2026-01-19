@@ -467,3 +467,33 @@
 - ISO 639-2 (3-letter) codes are required for ffmpeg subtitle language metadata
 - get_audio_duration() helper works for video files too (ffprobe extracts audio duration)
 
+
+## US-016: Create summary and comparison cell - COMPLETE
+
+**Date:** 2026-01-19
+**Files changed:**
+- debug_pipeline.ipynb (modified - added 2 cells: Cell 31 markdown, Cell 32 code)
+
+**Implementation notes:**
+- Added markdown cell (Cell 31) explaining pipeline summary:
+  - Lists all 14 pipeline stages with descriptions
+  - Quality verification checklist with 7 items
+  - Debugging approaches table for common issues
+  
+- Added code cell (Cell 32) with comprehensive summary:
+  - Pipeline Stage Status: Shows 12 tracked stages with completion status (✓ DONE, - SKIPPED, ✗ MISSING)
+  - Output Files: Lists all generated files with sizes and paths, plus total size
+  - Voice Samples: Shows speaker samples when using multi-speaker mode
+  - Pipeline Statistics: Video title, duration, speakers, segments, languages
+  - Total Execution Time: Duration with real-time ratio calculation
+  - Quality Checklist: 7 manual verification items to check
+  - Quick Debug Commands: Copy-paste commands for troubleshooting
+  - Final Output: Prominent display of final video path with size and duration
+
+**Learnings:**
+- The video_info dict stores paths but not timing data - each cell displays timing locally
+- For comprehensive timing breakdown, would need to modify earlier cells to store timing in video_info
+- The summary cell provides a quality-focused approach instead, with manual checklist
+- format_file_size(), format_duration(), get_audio_duration() helpers are reused from earlier cells
+- Path.exists() method used to verify output files are actually present
+
