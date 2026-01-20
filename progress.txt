@@ -172,3 +172,26 @@
 - httpx already available in project requirements (used by other modules)
 - US-008 will use this client to update the Railway API endpoints
 
+## US-008: Update Railway API to use RunPod - COMPLETE
+
+**Date:** 2026-01-20 18:00
+**Files changed:**
+- server.py (new file - FastAPI gateway)
+- Procfile (updated to use server:app)
+
+**Implementation notes:**
+- Created server.py as the new Railway API gateway
+- POST /translate endpoint calls runpod_client.submit_job()
+- GET /status/{job_id} endpoint calls runpod_client.get_job_status()
+- Used map_runpod_status_to_api() for status mapping (pending/processing/completed/failed)
+- JobStatus model matches old cloud_translate.py format for backwards compatibility
+- Added POST /cancel/{job_id} endpoint for job cancellation
+- Updated Procfile to use server:app instead of cloud_translate:app
+- No Replicate code in active endpoints - all delegated to RunPod
+
+**Learnings:**
+- FastAPI async endpoints work seamlessly with httpx async client
+- Progress percentage simplified to fixed values (0/50/100) since RunPod doesn't expose granular progress
+- Procfile change is critical for Railway deployment to use new server
+- Old cloud_translate.py remains in archives/ for reference but is no longer active
+
