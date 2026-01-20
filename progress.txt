@@ -46,3 +46,29 @@
 - Config.py already had CHATTERBOX_SAMPLE_RATE and VOICE_SAMPLE_DURATION_SECONDS
 - Return field should be output_url per acceptance criteria (not output_path)
 
+## US-003: Integrate Qwen3-32B for translation - COMPLETE
+
+**Date:** 2026-01-20 12:30
+**Files changed:**
+- llm_translate.py (new module)
+- translate.py (import and use llm_translate)
+
+**Implementation notes:**
+- Created llm_translate.py with translate_segments_llm() function
+- Uses transformers library with BitsAndBytesConfig for 4-bit quantization
+- Model name: Qwen/Qwen3-32B with nf4 quantization and double quant
+- Global model/tokenizer cache (_llm_model, _llm_tokenizer) to load once and reuse
+- Batches segments using LLM_MAX_SEGMENTS_PER_BATCH (50) with LLM_BATCH_OVERLAP (5)
+- Build structured prompts with [N] numbered format for easy parsing
+- Uses Qwen chat template with enable_thinking=False for faster response
+- Graceful fallback: if LLM fails to load or parse, uses Google Translate per-segment
+- translate.py's translate_segments() now delegates to translate_segments_llm()
+- Progress callback bridges from llm_translate to tracker.update_detail()
+
+**Learnings:**
+- Config.py already had all LLM constants (LLM_MAX_SEGMENTS_PER_BATCH, LLM_BATCH_OVERLAP, LLM_MAX_TOKENS, LLM_TEMPERATURE)
+- BitsAndBytesConfig requires torch and specific CUDA setup
+- Qwen3 models support chat template with thinking mode that can be disabled
+- Regex parsing with numbered format [N] is robust for extracting translations
+- Import check in py_compile is sufficient; full import requires venv dependencies
+
