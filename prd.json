@@ -119,8 +119,8 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 7. Created runpod_client.py with async submit_job, get_job_status, cancel_job functions and RunPodError exception."
     },
     {
       "id": "US-008",

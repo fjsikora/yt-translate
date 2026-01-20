@@ -148,3 +148,27 @@
 - Consolidating requirements makes Dockerfile cleaner and more maintainable
 - torch/torchaudio versions must match for compatibility
 
+## US-007: Create RunPod client in API gateway - COMPLETE
+
+**Date:** 2026-01-20 17:00
+**Files changed:**
+- runpod_client.py (new module)
+
+**Implementation notes:**
+- Created runpod_client.py with async functions for RunPod Serverless API
+- submit_job(video_url, target_lang, voice_sample_url=None) returns job_id string
+- get_job_status(job_id) returns JobStatus TypedDict with id, status, output, error
+- cancel_job(job_id) returns bool indicating success
+- Uses RUNPOD_API_KEY and RUNPOD_ENDPOINT_ID environment variables
+- Custom RunPodError exception with status_code and details attributes
+- Helper function map_runpod_status_to_api() maps RunPod statuses to existing API format
+- Proper error handling: 401 (auth), 404 (not found), 429 (rate limit), 5xx (server error)
+- TypedDict types for JobInput, JobOutput, JobStatus for type hints
+
+**Learnings:**
+- RunPod API endpoints: /run (submit), /status/{id} (poll), /cancel/{id} (cancel)
+- RunPod statuses: IN_QUEUE, IN_PROGRESS, COMPLETED, FAILED, CANCELLED
+- httpx.AsyncClient is preferred for async HTTP in FastAPI contexts
+- httpx already available in project requirements (used by other modules)
+- US-008 will use this client to update the Railway API endpoints
+
