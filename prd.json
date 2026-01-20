@@ -61,7 +61,7 @@
       ],
       "priority": 4,
       "passes": false,
-      "notes": ""
+      "notes": "BLOCKED: RunPod account balance insufficient ($0.00). Template created (ID: gxd9dfcy8l) with vLLM worker image runpod/worker-v1-vllm:stable-cuda12.1.0 configured for Qwen/Qwen3-32B. Endpoint creation requires minimum $0.01 balance. User must add funds to RunPod account to proceed."
     },
     {
       "id": "US-005",

@@ -407,3 +407,43 @@ User must grant RunPod MCP tool permissions. When Claude requests permission to 
 - Chatterbox doesn't need HUGGINGFACE_TOKEN (only SUPABASE vars)
 - RunPod templates now ready: audio (k0iwwtx14x), chatterbox (0m5zlkzse8)
 
+---
+
+## US-004: Configure vLLM Endpoint - BLOCKED
+
+**Date:** 2026-01-20
+**Status:** BLOCKED - RunPod account balance insufficient
+
+**Progress Made:**
+- Researched RunPod's official vLLM Worker template
+- Docker image: runpod/worker-v1-vllm:stable-cuda12.1.0
+- Created template successfully with ID: gxd9dfcy8l
+- Template configured with:
+  - Model: Qwen/Qwen3-32B
+  - MAX_MODEL_LEN: 8192
+  - GPU_MEMORY_UTILIZATION: 0.95
+  - TENSOR_PARALLEL_SIZE: 1
+  - HF_TOKEN: (placeholder for user to set)
+  - Container disk: 100GB
+  - Volume: 100GB at /workspace
+
+**Blocker:**
+- Endpoint creation failed with error: "You must have at least $0.01 in your account balance to create an endpoint."
+- RunPod requires minimum balance to create serverless endpoints
+
+**OpenAI-Compatible API (documented for when endpoint is created):**
+- Base URL: https://api.runpod.ai/v2/<ENDPOINT_ID>/openai/v1
+- Endpoints:
+  - POST /v1/chat/completions (streaming and non-streaming)
+  - GET /v1/models
+
+**Action Required:**
+User must add funds to RunPod account (minimum $0.01) to create the endpoint.
+
+**Learnings:**
+- RunPod's official vLLM worker image: runpod/worker-v1-vllm:stable-cuda12.1.0
+- vLLM worker provides OpenAI-compatible API at /openai/v1 path
+- Qwen3-32B requires A100 80GB GPU (large 32B parameter model)
+- Template creation works without balance, but endpoint creation requires funds
+- Templates now: audio (k0iwwtx14x), chatterbox (0m5zlkzse8), vllm (gxd9dfcy8l)
+
