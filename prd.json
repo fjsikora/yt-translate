@@ -1,161 +1,184 @@
 {
-  "project": "runpod-mcp-deployment",
+  "project": "runpod-5-worker-deployment",
   "branchName": "ralph/runpod-deployment",
-  "description": "Deploy 3-container translation pipeline to RunPod Serverless using GitHub integration and MCP tools",
+  "description": "Deploy 5-worker translation pipeline to RunPod Serverless: Whisper (pre-built), Diarization, Demucs, vLLM (pre-built), Chatterbox",
+  "endpoints": {
+    "whisper": {
+      "id": "",
+      "name": "yt-whisper",
+      "status": "pending",
+      "notes": "Deploy from RunPod Hub - search 'Faster Whisper'"
+    },
+    "diarization": {
+      "id": "x0uczgtiv34udm",
+      "name": "yt-diarization -fb",
+      "templateId": "l3y9gc9cc5",
+      "gpu": "RTX 4090",
+      "workers": "0-1",
+      "status": "created"
+    },
+    "demucs": {
+      "id": "iawxgwernfm5s0",
+      "name": "yt-demucs -fb",
+      "templateId": "1rsmubtq6y",
+      "gpu": "RTX 4090",
+      "workers": "0-1",
+      "status": "created"
+    },
+    "vllm": {
+      "id": "mo5vt1mlci0mtw",
+      "name": "yt-vllm -fb",
+      "templateId": "gxd9dfcy8l",
+      "gpu": "A100 80GB",
+      "workers": "0-1",
+      "status": "working"
+    },
+    "chatterbox": {
+      "id": "hawxheiv8ny1ny",
+      "name": "yt-chatterbox -fb",
+      "templateId": "u3whcsnovc",
+      "gpu": "RTX 4090",
+      "workers": "0-1",
+      "status": "created"
+    }
+  },
   "userStories": [
     {
       "id": "US-001",
-      "title": "Connect GitHub to RunPod",
-      "description": "As a developer, I want to connect my private GitHub repo to RunPod so that RunPod can build Docker images from my Dockerfiles.",
+      "title": "Create Diarization Worker",
+      "description": "Create Pyannote speaker diarization worker with slim Dockerfile.",
       "acceptanceCriteria": [
-        "RunPod GitHub integration enabled in dashboard",
-        "Private yt-translate repo authorized",
-        "Verify RunPod can access repo (test build trigger)"
+        "handler.py created with Pyannote 3.1",
+        "Dockerfile uses runtime model download",
+        "requirements.txt has minimal dependencies",
+        "Template created: l3y9gc9cc5",
+        "Endpoint created: x0uczgtiv34udm"
       ],
       "priority": 1,
       "passes": true,
-      "notes": "Completed manually via RunPod dashboard. GitHub OAuth connected to private yt-translate repo."
+      "notes": "Created runpod/diarization/ with handler, Dockerfile, requirements. Template and endpoint created via MCP."
     },
     {
       "id": "US-002",
-      "title": "Create Audio Worker Template",
-      "description": "As a developer, I want to create a RunPod serverless template for the audio worker that builds from runpod/audio/Dockerfile.",
+      "title": "Create Demucs Worker",
+      "description": "Create Demucs audio separation worker with slim Dockerfile.",
       "acceptanceCriteria": [
-        "Template created via mcp__runpod__create-template",
-        "Template name: yt-translate-audio",
-        "Image builds from GitHub repo Dockerfile",
-        "Environment variables configured: HUGGINGFACE_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_KEY",
-        "Container disk: 50GB (for model cache)",
-        "Volume: 20GB at /runpod-volume"
+        "handler.py created with Demucs htdemucs model",
+        "Dockerfile uses runtime model download",
+        "requirements.txt has minimal dependencies",
+        "Template created: 1rsmubtq6y",
+        "Endpoint created: iawxgwernfm5s0"
       ],
       "priority": 2,
       "passes": true,
-      "notes": "Template created with ID k0iwwtx14x. Image: ghcr.io/fsikora/yt-translate/audio:latest. Volume at /workspace (RunPod default). Env vars configured."
+      "notes": "Created runpod/demucs/ with handler, Dockerfile, requirements. Template and endpoint created via MCP."
     },
     {
       "id": "US-003",
-      "title": "Create Chatterbox Worker Template",
-      "description": "As a developer, I want to create a RunPod serverless template for the Chatterbox TTS worker.",
+      "title": "Create Chatterbox Worker",
+      "description": "Verify/update Chatterbox TTS worker with slim Dockerfile.",
       "acceptanceCriteria": [
-        "Template created via mcp__runpod__create-template",
-        "Template name: yt-translate-chatterbox",
-        "Image builds from runpod/chatterbox/Dockerfile",
-        "Environment variables: SUPABASE_URL, SUPABASE_SERVICE_KEY",
-        "Container disk: 30GB",
-        "Volume: 10GB at /runpod-volume"
+        "Dockerfile has no model pre-downloads",
+        "Image size < 10GB",
+        "Template created: u3whcsnovc",
+        "Endpoint created: hawxheiv8ny1ny"
       ],
       "priority": 3,
       "passes": true,
-      "notes": "Template created with ID 0m5zlkzse8. Image: ghcr.io/fsikora/yt-translate/chatterbox:latest. Volume at /workspace (RunPod default). Env vars configured."
+      "notes": "Existing runpod/chatterbox/ was already slim. Template and endpoint created via MCP."
     },
     {
       "id": "US-004",
-      "title": "Configure vLLM Endpoint",
-      "description": "As a developer, I want to create a vLLM endpoint using RunPod's pre-built vLLM Worker template for Qwen3-32B translation.",
+      "title": "Setup GitHub Actions for Image Builds",
+      "description": "Create GitHub Actions workflow to build and push Docker images to GHCR.",
       "acceptanceCriteria": [
-        "Use RunPod's official vLLM Worker template",
-        "Configure for Qwen/Qwen3-32B model",
-        "GPU: A100 80GB (required for 32B model)",
-        "OpenAI-compatible API enabled",
-        "Document endpoint URL and API format"
+        "Workflow created at .github/workflows/build-runpod-workers.yml",
+        "Builds diarization, demucs, chatterbox images",
+        "Pushes to ghcr.io/fjsikora/yt-translate/*",
+        "Triggered on push to main/ralph/runpod-deployment"
       ],
       "priority": 4,
       "passes": true,
-      "notes": "Endpoint created: mo5vt1mlci0mtw (yt-vllm). Template: gxd9dfcy8l. GPU: A100 80GB. OpenAI API at /openai/v1. Documented in runpod/vllm/README.md."
+      "notes": "Workflow created and pushed. Check https://github.com/fjsikora/yt-translate/actions for build status."
     },
     {
       "id": "US-005",
-      "title": "Create Audio Serverless Endpoint",
-      "description": "As a developer, I want to create a serverless endpoint for the audio worker with auto-scaling.",
+      "title": "Deploy Faster-Whisper Pre-built",
+      "description": "Deploy official RunPod Faster-Whisper endpoint from Hub.",
       "acceptanceCriteria": [
-        "Endpoint created via mcp__runpod__create-endpoint",
-        "Endpoint name: yt-audio",
-        "Uses yt-translate-audio template",
-        "GPU: RTX 4090 (24GB)",
-        "Min workers: 0 (scale to zero)",
-        "Max workers: 5",
-        "Document endpoint ID"
+        "Endpoint deployed from RunPod Hub",
+        "GPU: RTX 4090",
+        "Workers: 0-3",
+        "Endpoint ID documented"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "Endpoint created: 6ml08xitszksx7. Name: yt-audio -fb. GPU: RTX 4090. Workers: 0-3 (reduced from 4 to fit chatterbox). Flashboot enabled."
+      "passes": false,
+      "notes": "MANUAL STEP: Go to RunPod Console → Serverless → Explore → Search 'Faster Whisper' → Deploy"
     },
     {
       "id": "US-006",
-      "title": "Create Chatterbox Serverless Endpoint",
-      "description": "As a developer, I want to create a serverless endpoint for Chatterbox TTS.",
+      "title": "Test Diarization Endpoint",
+      "description": "Verify the diarization endpoint returns speaker segments.",
       "acceptanceCriteria": [
-        "Endpoint created via mcp__runpod__create-endpoint",
-        "Endpoint name: yt-chatterbox",
-        "Uses yt-translate-chatterbox template",
-        "GPU: RTX 4090 (24GB)",
-        "Min workers: 0",
-        "Max workers: 5",
-        "Document endpoint ID"
+        "Submit test job with audio URL",
+        "Response includes speaker segments with timestamps",
+        "Unique speakers identified correctly"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": "Endpoint created: fng8yb7yom8qdo. Name: yt-chatterbox -fb. GPU: RTX 4090. Workers: 0-1 (quota limited). Reduced yt-audio max from 4 to 3 to fit quota."
+      "passes": false,
+      "notes": "BLOCKED: Waiting for GitHub Actions to build images"
     },
     {
       "id": "US-007",
-      "title": "Test Audio Endpoint",
-      "description": "As a developer, I want to verify the audio endpoint processes a test video correctly.",
+      "title": "Test Demucs Endpoint",
+      "description": "Verify the Demucs endpoint separates vocals and background.",
       "acceptanceCriteria": [
-        "Submit test job with YouTube video URL",
-        "Job completes without errors",
-        "Response includes: language, segments, vocals_path, background_path",
-        "Segments have speaker IDs from diarization",
-        "Processing time < 3 minutes for 2-minute video"
+        "Submit test job with audio URL",
+        "Response includes vocals_base64 and background_base64",
+        "Audio files are valid WAV format"
       ],
       "priority": 7,
       "passes": false,
-      "notes": "BLOCKED: Docker image ghcr.io/fsikora/yt-translate/audio:latest not available in GHCR. Workers all EXITED (verified 2026-01-20). Action required: docker login ghcr.io -u fsikora && docker build -f runpod/audio/Dockerfile -t ghcr.io/fsikora/yt-translate/audio:latest . && docker push ghcr.io/fsikora/yt-translate/audio:latest"
+      "notes": "BLOCKED: Waiting for GitHub Actions to build images"
     },
     {
       "id": "US-008",
       "title": "Test vLLM Endpoint",
-      "description": "As a developer, I want to verify the vLLM endpoint translates text segments correctly.",
+      "description": "Verify the vLLM endpoint translates text correctly.",
       "acceptanceCriteria": [
-        "Submit test translation request (5 segments, EN→ES)",
-        "Response returns translated text for all segments",
-        "Translations are contextually coherent",
-        "API follows OpenAI chat completion format",
-        "Processing time < 30 seconds for 5 segments"
+        "Submit test translation request",
+        "Response returns translated text",
+        "API follows OpenAI chat completion format"
       ],
       "priority": 8,
       "passes": false,
-      "notes": ""
+      "notes": "Endpoint exists and template is working. Need to test translation."
     },
     {
       "id": "US-009",
       "title": "Test Chatterbox Endpoint",
-      "description": "As a developer, I want to verify the Chatterbox endpoint generates speech correctly.",
+      "description": "Verify the Chatterbox endpoint generates speech.",
       "acceptanceCriteria": [
-        "Submit test job with text + voice sample URL",
-        "Job completes without errors",
-        "Response includes audio file path/URL",
-        "Audio is intelligible and matches voice sample",
-        "Processing time < 60 seconds for 30 seconds of speech"
+        "Submit test job with text + voice sample",
+        "Response includes generated audio",
+        "Audio is intelligible"
       ],
       "priority": 9,
       "passes": false,
-      "notes": ""
+      "notes": "BLOCKED: Waiting for GitHub Actions to build images"
     },
     {
       "id": "US-010",
-      "title": "Document Endpoint Configuration",
-      "description": "As a developer, I want to document all endpoint IDs and configuration for Railway integration.",
+      "title": "Update Orchestrator",
+      "description": "Update orchestrator.py for 5-endpoint architecture.",
       "acceptanceCriteria": [
-        "Create .env.example with all RunPod endpoint IDs",
-        "Update runpod/README.md with deployment details",
-        "Document cold start times observed",
-        "Document cost per request observed",
-        "List any issues encountered and workarounds"
+        "Orchestrator calls all 5 endpoints",
+        "Whisper + Diarization + Demucs run in parallel",
+        "Results combined for translation and TTS"
       ],
       "priority": 10,
       "passes": false,
-      "notes": ""
+      "notes": "Pending after endpoint tests pass"
     }
   ]
 }
