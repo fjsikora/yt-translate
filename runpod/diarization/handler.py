@@ -58,7 +58,7 @@ def get_pipeline(hf_token: str):
         log("Loading Pyannote pipeline...")
         _pipeline = Pipeline.from_pretrained(
             "pyannote/speaker-diarization-3.1",
-            use_auth_token=hf_token,
+            token=hf_token,
         )
         if torch.cuda.is_available():
             _pipeline.to(torch.device("cuda"))
