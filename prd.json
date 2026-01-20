@@ -1,271 +1,174 @@
 {
-  "project": "jupyter-debug-notebook",
-  "branchName": "ralph/jupyter-debug-notebook",
-  "description": "Create a Jupyter notebook version of cloud_translate.py for debugging translation quality issues, with each pipeline stage broken into separate cells with markdown explanations and intermediate output display.",
+  "project": "runpod-deployment",
+  "branchName": "ralph/runpod-deployment",
+  "description": "Migrate video translation pipeline from Replicate APIs to self-hosted RunPod Serverless with Qwen3-32B LLM translation",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Create notebook with setup and configuration cell",
-      "description": "As a developer, I want a notebook that loads dependencies and configuration from environment variables so that I can run the pipeline in an isolated debugging environment.",
+      "title": "Archive cloud-based translation code",
+      "description": "As a developer, I want to archive the Replicate-based cloud translation code so that the codebase clearly reflects the new self-hosted architecture.",
       "acceptanceCriteria": [
-        "Notebook imports all required dependencies (yt-dlp, openai, replicate, deep_translator, etc.)",
-        "Environment variables loaded via dotenv",
-        "API clients initialized (OpenAI, Replicate)",
-        "Configuration variables displayed (OUTPUT_DIR, API key status, model names)",
-        "Helper functions from cloud_translate.py available (parse_timestamp, etc.)",
-        "Markdown cell explains what each import/config does",
-        "Typecheck passes (for any .py helper modules)"
+        "cloud_translate.py moved to archives/cloud_translate.py",
+        "requirements-cloud.txt moved to archives/requirements-cloud.txt",
+        "archives/ directory has README explaining archived code",
+        "Main requirements.txt updated to remove Replicate/OpenAI deps",
+        "Typecheck passes"
       ],
       "priority": 1,
       "passes": true,
-      "notes": "Completed in iteration 1. Created debug_pipeline.ipynb with setup and configuration cell."
+      "notes": "Completed in iteration 1. Files archived, requirements updated, syntax checks pass."
     },
     {
       "id": "US-002",
-      "title": "Create input configuration cell",
-      "description": "As a developer, I want a cell where I can specify the video URL, target language, and processing options so that I can easily test different inputs.",
+      "title": "Create translate_video function interface",
+      "description": "As a developer, I want a clean function interface in translate.py that can be called by the RunPod handler, returning structured results instead of using Rich CLI output.",
       "acceptanceCriteria": [
-        "Cell defines VIDEO_URL, TARGET_LANGUAGE, and DURATION_LIMIT variables",
-        "Toggle variable USE_MULTI_SPEAKER (True/False) for synthesis mode selection",
-        "Markdown explains supported URL formats and language codes",
-        "Example values provided as comments",
+        "New translate_video(video_url, target_lang, output_dir, progress_callback=None) function in translate.py",
+        "Returns dict with: output_url, duration, segments_count, speakers_count",
+        "Progress callback receives: stage, progress_pct, detail for status updates",
+        "Uses config.py settings: WHISPER_SAMPLE_RATE=16000, CHATTERBOX_SAMPLE_RATE=24000",
+        "Voice samples extracted at 24kHz mono per config (VOICE_SAMPLE_DURATION=10s)",
+        "Audio mixing uses BACKGROUND_VOLUME=1.0 (full original volume for better UX)",
+        "Existing CLI main() function calls new translate_video() internally",
+        "Works without Rich console when progress_callback is provided",
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": true,
-      "notes": "Completed in iteration 2. Added input configuration cells with VIDEO_URL, TARGET_LANGUAGE, DURATION_LIMIT, USE_MULTI_SPEAKER variables. Includes comprehensive markdown documentation with URL formats, language codes table, and multi-speaker mode explanation."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-003",
-      "title": "Create video info retrieval cell",
-      "description": "As a developer, I want to fetch and display video metadata before downloading so that I can verify the correct video is being processed.",
+      "title": "Integrate Qwen3-32B for translation",
+      "description": "As a developer, I want to replace Google Translate with Qwen3-32B LLM for higher-quality context-aware translations.",
       "acceptanceCriteria": [
-        "Cell uses yt-dlp to extract video info without downloading",
-        "Displays: title, duration, video ID, thumbnail URL",
-        "Shows estimated price calculation",
-        "Handles errors gracefully with informative messages",
-        "Markdown explains yt-dlp info extraction",
+        "New llm_translate.py module with translate_segments_llm() function",
+        "Uses transformers library to load Qwen3-32B model (4-bit quantized for VRAM efficiency)",
+        "Batches segments per config: LLM_MAX_SEGMENTS_PER_BATCH=50, LLM_BATCH_OVERLAP=5",
+        "Uses LLM_MAX_TOKENS=4096 and LLM_TEMPERATURE=0.3 from config",
+        "Graceful fallback to Google Translate if LLM fails",
+        "Model loaded once and reused across segments",
+        "translate.py imports and uses new LLM translation",
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": "Completed in iteration 3. Added video info retrieval cells with yt-dlp extract_info, price calculation, and error handling."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-004",
-      "title": "Create video download cell",
-      "description": "As a developer, I want to download the video file so that I can inspect the source material.",
+      "title": "Create RunPod handler",
+      "description": "As a developer, I want a RunPod serverless handler that wraps translate_video() and handles job input/output.",
       "acceptanceCriteria": [
-        "Downloads video using yt-dlp with configured options",
-        "Applies duration limit trimming via ffmpeg if DURATION_LIMIT is set",
-        "Displays download progress and final file size",
-        "Shows path to downloaded video file",
-        "Markdown explains download process and format selection",
+        "runpod/handler.py created with handler(job) function",
+        "Accepts input: video_url, target_lang, voice_sample_url (optional)",
+        "Returns output: status, output_url, duration, error (if failed)",
+        "Uploads result to Supabase Storage and returns signed URL",
+        "Reports progress via RunPod job refresh mechanism",
+        "Handles errors gracefully with meaningful error messages",
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "Completed in iteration 4. Added video download cell with yt-dlp download, ffmpeg duration trimming, file size display, and comprehensive error handling."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-005",
-      "title": "Create audio extraction cell",
-      "description": "As a developer, I want to extract audio from the video so that I can inspect the audio before processing.",
+      "title": "Create RunPod Dockerfile",
+      "description": "As a developer, I want a Dockerfile that packages all ML models and dependencies for RunPod deployment.",
       "acceptanceCriteria": [
-        "Extracts audio using ffmpeg (16kHz, mono, PCM)",
-        "Displays audio file path and duration",
-        "Shows audio file size",
-        "Markdown explains audio format requirements for Whisper",
-        "Typecheck passes"
+        "runpod/Dockerfile created with CUDA 12.4 base image",
+        "ffmpeg installed via apt",
+        "All Python dependencies installed from requirements.txt",
+        "Whisper medium model pre-downloaded and baked into image",
+        "Demucs htdemucs model pre-downloaded and baked into image",
+        "Container runs handler.py as entrypoint",
+        "Image builds successfully: docker build -f runpod/Dockerfile -t yt-translate-worker ."
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "Completed in iteration 5. Added audio extraction cells with ffmpeg (16kHz, mono, PCM), file size display, duration display via ffprobe, and comprehensive error handling."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-006",
-      "title": "Create audio separation cell",
-      "description": "As a developer, I want to separate vocals from background music so that I can verify the separation quality.",
+      "title": "Create requirements-runpod.txt",
+      "description": "As a developer, I want a dedicated requirements file for the RunPod worker with all ML dependencies.",
       "acceptanceCriteria": [
-        "Calls Replicate Demucs API for audio separation",
-        "Downloads and saves vocals.wav and background.wav",
-        "Displays file paths for both stems",
-        "Shows API call timing",
-        "Markdown explains Demucs separation and why it improves transcription",
-        "Typecheck passes"
+        "runpod/requirements.txt created with all dependencies",
+        "Includes: torch, torchaudio, whisper, demucs, chatterbox-tts, pyannote.audio",
+        "Includes: transformers, accelerate (for Qwen3-32B)",
+        "Includes: runpod SDK, supabase, httpx",
+        "Pinned versions for reproducibility",
+        "Typecheck passes after installing deps"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": "Completed in iteration 6. Added audio separation cells with Replicate Demucs API, base64 data URI encoding, vocals/background download, timing display, and fallback error handling."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-007",
-      "title": "Create speaker diarization cell",
-      "description": "As a developer, I want to identify different speakers in the audio so that I can verify speaker detection accuracy.",
+      "title": "Create RunPod client in API gateway",
+      "description": "As a developer, I want the Railway API gateway to submit jobs to RunPod and poll for results.",
       "acceptanceCriteria": [
-        "Uploads vocals to storage for API access",
-        "Calls Replicate speaker-diarization API",
-        "Parses and displays diarization segments with speaker labels",
-        "Shows number of speakers detected",
-        "Displays segment list as formatted table (speaker, start, end, duration)",
-        "Markdown explains diarization and speaker label format",
+        "New runpod_client.py module with async functions",
+        "submit_job(video_url, target_lang) returns job_id",
+        "get_job_status(job_id) returns status dict",
+        "cancel_job(job_id) cancels running job",
+        "Uses RUNPOD_API_KEY and RUNPOD_ENDPOINT_ID env vars",
+        "Proper error handling for API failures",
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": true,
-      "notes": "Completed in iteration 7. Added speaker diarization cells with Replicate files.create() upload, meronym/speaker-diarization API call, speaker label conversion (A,B->SPEAKER_00,01), formatted segment table, per-speaker statistics, and comprehensive error handling."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-008",
-      "title": "Create voice sample extraction cell",
-      "description": "As a developer, I want to extract voice samples for each speaker so that I can verify voice cloning input quality.",
+      "title": "Update Railway API to use RunPod",
+      "description": "As a developer, I want the Railway API endpoints to call RunPod instead of Replicate for video processing.",
       "acceptanceCriteria": [
-        "Extracts longest segment for each speaker using ffmpeg",
-        "Saves samples as {SPEAKER_ID}_sample.wav files",
-        "Uploads samples to storage and gets signed URLs",
-        "Displays speaker_voice_urls dictionary",
-        "Shows sample durations for each speaker",
-        "Markdown explains voice sample requirements for Chatterbox",
+        "/translate endpoint updated to call runpod_client.submit_job()",
+        "/status/{job_id} endpoint calls runpod_client.get_job_status()",
+        "Job status mapping: RunPod statuses to existing API response format",
+        "Backwards compatible response format for frontend",
+        "Old Replicate code removed from active endpoints",
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": true,
-      "notes": "Completed in iteration 8. Added voice sample extraction cells with extract_speaker_samples() function using ffmpeg, Replicate files.create() upload for signed URLs, formatted summary table with durations and file sizes, comprehensive error handling and fallback to single-speaker mode."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-009",
-      "title": "Create transcription cell",
-      "description": "As a developer, I want to transcribe the vocals so that I can inspect the raw transcription quality.",
+      "title": "Create docker-compose for local development",
+      "description": "As a developer, I want a docker-compose setup to test the RunPod worker locally with GPU.",
       "acceptanceCriteria": [
-        "Calls OpenAI Whisper API with verbose_json response",
-        "Parses segments with timestamps",
-        "Displays segments as formatted table (index, start, end, text)",
-        "Shows total segment count and detected language",
-        "Shows API call timing",
-        "Markdown explains Whisper API parameters and segment format",
-        "Typecheck passes"
+        "docker-compose.yml created with GPU support",
+        "Worker service uses runpod/Dockerfile",
+        "Environment variables loaded from .env",
+        "Volume mounts for model caching",
+        "docker compose up starts worker successfully",
+        "Can submit test job via curl and receive result"
       ],
       "priority": 9,
-      "passes": true,
-      "notes": "Completed in iteration 9. Added transcription cells with OpenAI Whisper API (verbose_json), segment parsing with timestamps, formatted segment table, detected language display, API timing, and comprehensive markdown documentation."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-010",
-      "title": "Create translation cell",
-      "description": "As a developer, I want to translate the transcribed segments so that I can compare original and translated text side-by-side.",
+      "title": "Add health check and monitoring",
+      "description": "As a developer, I want health checks and basic monitoring in the RunPod worker.",
       "acceptanceCriteria": [
-        "Calls Replicate LLM for context-aware translation (batched if needed)",
-        "Displays translated segments as table (index, original_text, translated_text)",
-        "Shows translation comparison for quality inspection",
-        "Shows API call timing and batch count",
-        "Markdown explains LLM translation approach and batching strategy",
+        "Handler reports GPU availability on startup",
+        "Handler reports loaded models on startup",
+        "Failed jobs include detailed error traces",
+        "Job duration logged for each completion",
+        "Memory usage logged before/after processing",
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": true,
-      "notes": "Completed in iteration 10. Added translation cells with Replicate Llama 3.1 405B LLM, batching strategy (50 segments/batch with 5 overlap), side-by-side comparison table, API timing display, and comprehensive markdown documentation."
-    },
-    {
-      "id": "US-011",
-      "title": "Create single-speaker synthesis cell",
-      "description": "As a developer, I want a cell that synthesizes all text with a single voice so that I can compare against multi-speaker output.",
-      "acceptanceCriteria": [
-        "Only executes if USE_MULTI_SPEAKER is False",
-        "Combines all translated text",
-        "Calls Chatterbox API with first available voice sample",
-        "Saves output as translated_audio_single.wav",
-        "Displays audio file path and duration",
-        "Shows API call timing",
-        "Markdown explains single-speaker synthesis fallback mode",
-        "Typecheck passes"
-      ],
-      "priority": 11,
-      "passes": true,
-      "notes": "Completed in iteration 11. Added single-speaker synthesis cells (Cell 11) with Chatterbox API, conditional execution based on USE_MULTI_SPEAKER, combined text synthesis, and comprehensive timing display."
-    },
-    {
-      "id": "US-012",
-      "title": "Create multi-speaker synthesis cell",
-      "description": "As a developer, I want to synthesize each segment with the matched speaker's voice so that I can verify voice cloning and timing.",
-      "acceptanceCriteria": [
-        "Only executes if USE_MULTI_SPEAKER is True",
-        "Matches each segment to speaker via diarization overlap",
-        "Calls Chatterbox API for each segment with matched voice",
-        "Displays progress during synthesis (segment X of Y)",
-        "Shows segment-to-speaker mapping as table",
-        "Combines segments with adjusted timing (no overlap)",
-        "Saves output as translated_audio_multi.wav",
-        "Markdown explains speaker matching algorithm and timing adjustment",
-        "Typecheck passes"
-      ],
-      "priority": 12,
-      "passes": true,
-      "notes": "Completed in iteration 12. Added multi-speaker synthesis cells (Cell 24 markdown, Cell 25 code) with speaker matching via diarization overlap, per-segment Chatterbox API calls, and audio combination with adjusted timing."
-    },
-    {
-      "id": "US-013",
-      "title": "Create audio mixing cell",
-      "description": "As a developer, I want to mix the translated speech with background audio so that I can verify the mix levels.",
-      "acceptanceCriteria": [
-        "Mixes translated speech (100%) with background (30% default)",
-        "Allows configurable BACKGROUND_VOLUME variable",
-        "Saves output as mixed_audio.wav",
-        "Displays file path and duration",
-        "Markdown explains mixing process and volume levels",
-        "Typecheck passes"
-      ],
-      "priority": 13,
-      "passes": true,
-      "notes": "Completed in iteration 13. Added audio mixing cells (Cell 25 markdown, Cell 26 code) with ffmpeg amix filter, configurable BACKGROUND_VOLUME, and stereo output."
-    },
-    {
-      "id": "US-014",
-      "title": "Create subtitle generation cell",
-      "description": "As a developer, I want to generate SRT subtitles so that I can verify subtitle timing and content.",
-      "acceptanceCriteria": [
-        "Generates SRT file from translated segments",
-        "Displays first 10 subtitle entries as preview",
-        "Shows total subtitle count",
-        "Saves output as subtitles.srt",
-        "Markdown explains SRT format and timestamp conversion",
-        "Typecheck passes"
-      ],
-      "priority": 14,
-      "passes": true,
-      "notes": "Completed in iteration 14. Added subtitle generation cells (Cell 27 markdown, Cell 28 code) with SRT format generation, first 10 entries preview, and subtitle count display."
-    },
-    {
-      "id": "US-015",
-      "title": "Create final video merge cell",
-      "description": "As a developer, I want to merge the translated audio with the original video so that I can produce the final output.",
-      "acceptanceCriteria": [
-        "Merges video with mixed audio using ffmpeg",
-        "Embeds subtitles as soft subs (mov_text codec)",
-        "Saves output as {title}_translated.mp4",
-        "Displays final output path and file size",
-        "Shows total pipeline execution time",
-        "Markdown explains ffmpeg merge command and subtitle embedding",
-        "Typecheck passes"
-      ],
-      "priority": 15,
-      "passes": true,
-      "notes": "Completed in iteration 15. Added final video merge cells (Cell 29 markdown, Cell 30 code) with ffmpeg merge, soft subtitle embedding via mov_text codec, and pipeline timing display."
-    },
-    {
-      "id": "US-016",
-      "title": "Create summary and comparison cell",
-      "description": "As a developer, I want a final summary cell that displays timing for all stages so that I can identify bottlenecks.",
-      "acceptanceCriteria": [
-        "Displays timing breakdown for each pipeline stage",
-        "Shows total execution time",
-        "Lists all output file paths",
-        "Provides quality checklist (items to manually verify)",
-        "Markdown summarizes the full pipeline and suggests debugging approaches",
-        "Typecheck passes"
-      ],
-      "priority": 16,
-      "passes": true,
-      "notes": "Completed in iteration 16. Added summary and comparison cells (Cell 31 markdown, Cell 32 code) with pipeline status, output files, quality checklist, and debug commands."
+      "passes": false,
+      "notes": ""
     }
   ]
 }
