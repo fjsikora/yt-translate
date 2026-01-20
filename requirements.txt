@@ -1,5 +1,13 @@
 # YouTube Video Translator Dependencies
 
+# Cloud APIs (for Llama translation and Whisper transcription)
+replicate>=1.0.0
+httpx>=0.25.0
+openai>=1.0.0
+
+# Environment
+python-dotenv>=1.0.0
+
 # Core pipeline
 yt-dlp>=2024.0.0
 openai-whisper>=20231117

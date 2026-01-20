@@ -14,7 +14,9 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+import soundfile as sf
 import torch
+import torchaudio
 
 
 class AudioSeparator:
@@ -82,30 +84,39 @@ class AudioSeparator:
         try:
             self._load_model()
 
-            from demucs.audio import AudioFile
             from demucs.apply import apply_model
 
-            # Load audio
-            audio_file = AudioFile(audio_path)
-            wav = audio_file.read(
-                seek_time=0,
-                duration=None,  # Full duration (None = read entire file)
-                streams=0,
-            )
+            # Load audio with soundfile (torchaudio.load requires torchcodec in newer versions)
+            data, input_sr = sf.read(audio_path)
+            wav = torch.from_numpy(data).float()
 
-            # Ensure correct shape and device
-            # wav shape should be (channels, samples)
+            # Handle shape: soundfile returns (samples,) or (samples, channels)
+            # torch expects (channels, samples)
             if wav.dim() == 1:
-                wav = wav.unsqueeze(0)
+                wav = wav.unsqueeze(0)  # (samples,) -> (1, samples)
+            elif wav.dim() == 2:
+                wav = wav.T  # (samples, channels) -> (channels, samples)
+
+            # Get model's expected sample rate
+            model_sr = self._model.samplerate
+
+            # Resample to model's sample rate if needed
+            if input_sr != model_sr:
+                resampler = torchaudio.transforms.Resample(
+                    orig_freq=input_sr,
+                    new_freq=model_sr
+                )
+                wav = resampler(wav)
+
+            # Ensure stereo (Demucs expects stereo input)
             if wav.shape[0] == 1:
-                # Mono to stereo
                 wav = wav.repeat(2, 1)
 
             # Add batch dimension
             wav = wav.unsqueeze(0).to(self.device)
 
-            # Get sample rate from model
-            self._sample_rate = self._model.samplerate
+            # Output will be at model's sample rate
+            self._sample_rate = model_sr
 
             # Apply model
             with torch.no_grad():
@@ -273,8 +284,9 @@ class SpeakerDiarizer:
         try:
             self._load_pipeline()
 
-            # Run diarization
-            self._diarization = self._pipeline(str(audio_path))
+            # Run diarization (pyannote 3.x returns DiarizeOutput dataclass)
+            output = self._pipeline(str(audio_path))
+            self._diarization = output.speaker_diarization
 
             # Convert to list of segments
             segments = []
