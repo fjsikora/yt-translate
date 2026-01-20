@@ -1,0 +1,22 @@
+# MuseTalk Lip Sync Worker Dependencies
+
+runpod>=1.7.0
+torch>=2.0.0
+torchaudio>=2.0.0
+torchvision>=0.15.0
+
+# MuseTalk dependencies
+diffusers>=0.27.0
+transformers>=4.30.0
+accelerate>=0.20.0
+omegaconf>=2.3.0
+av>=11.0.0
+opencv-python>=4.8.0
+imageio>=2.31.0
+imageio-ffmpeg>=0.4.8
+pyyaml>=6.0
+
+# OpenMMLab (installed via mim in Dockerfile)
+# mmcv>=2.0.0
+# mmdet>=3.0.0
+# mmpose>=1.0.0
