@@ -34,8 +34,8 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in iteration 2. translate_video() API added with TypedDict types, progress callback support, config integration."
     },
     {
       "id": "US-003",

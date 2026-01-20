@@ -23,3 +23,26 @@
 - mypy not installed in venv, using py_compile for syntax checking
 - Git correctly detects file renames when staging both deletion and new file
 
+## US-002: Create translate_video function interface - COMPLETE
+
+**Date:** 2026-01-20 11:00
+**Files changed:**
+- translate.py (added translate_video function, TypedDict types, refactored main)
+- config.py (added WHISPER_SAMPLE_RATE=16000, BACKGROUND_VOLUME=1.0)
+
+**Implementation notes:**
+- Created translate_video(video_url, target_lang, output_dir, progress_callback) function
+- Added TranslationResult TypedDict with output_url, duration, segments_count, speakers_count
+- Added ProgressInfo TypedDict with stage, progress_pct, detail fields
+- Progress callback calculates percentage based on 8 pipeline stages
+- NoOpTracker class handles functions requiring tracker without Rich console
+- main() now calls translate_video() with a callback that bridges to Rich display
+- Uses config values: WHISPER_SAMPLE_RATE, CHATTERBOX_SAMPLE_RATE, VOICE_SAMPLE_DURATION_SECONDS, BACKGROUND_VOLUME
+- Fixed CUDA_VISIBLE_DEVICES to not override if already set (for RunPod)
+
+**Learnings:**
+- TypedDict provides good type hints without runtime overhead
+- Callback pattern allows decoupling Rich display from core logic
+- Config.py already had CHATTERBOX_SAMPLE_RATE and VOICE_SAMPLE_DURATION_SECONDS
+- Return field should be output_url per acceptance criteria (not output_path)
+
