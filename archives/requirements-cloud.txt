@@ -14,8 +14,12 @@ openai>=1.0.0
 replicate>=1.0.0
 httpx>=0.25.0
 
-# Audio processing
+# Audio processing (local Demucs support)
 numpy>=1.24.0
+torch
+torchaudio
+demucs>=4.0.0
+soundfile
 
 # Translation
 deep-translator>=1.11.0
