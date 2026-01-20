@@ -110,7 +110,7 @@
       ],
       "priority": 7,
       "passes": false,
-      "notes": "BLOCKED: Docker image ghcr.io/fsikora/yt-translate/audio:latest not available in GHCR. Workers stuck in 'initializing' state. Tested: submitted jobs via API (RUNPOD_API_KEY from .env works), jobs stay IN_QUEUE indefinitely. Health check shows workers initializing but never become ready. Action required: Build and push Docker image with: docker build -f runpod/audio/Dockerfile -t ghcr.io/fsikora/yt-translate/audio:latest . && docker push ghcr.io/fsikora/yt-translate/audio:latest"
+      "notes": "BLOCKED: Docker image ghcr.io/fsikora/yt-translate/audio:latest not available in GHCR. Workers stuck in 'initializing' state (verified 2026-01-20 ~10:XX). Health: 3 workers initializing, 0 ready, 1 job queued. Action required: docker login ghcr.io -u fsikora && docker build -f runpod/audio/Dockerfile -t ghcr.io/fsikora/yt-translate/audio:latest . && docker push ghcr.io/fsikora/yt-translate/audio:latest"
     },
     {
       "id": "US-008",
