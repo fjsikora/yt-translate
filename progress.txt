@@ -618,3 +618,53 @@ curl -X POST "https://api.runpod.ai/v2/6ml08xitszksx7/run" \
 ```
 
 ---
+
+## US-007: Test Audio Endpoint - BLOCKED (Iteration 2026-01-20)
+
+**Date:** 2026-01-20
+**Status:** BLOCKED - Docker image not available
+
+**Investigation Performed:**
+1. Verified RUNPOD_API_KEY exists in .env file ✓
+2. Submitted test jobs via API:
+   - Job IDs: sync-f1025dad-6bc6-489d-9c96-ff0286b6fdac-u2, 3cecd728-a801-4f44-8911-437545e144d6-u1
+   - Jobs accepted but stay IN_QUEUE indefinitely
+3. Checked endpoint health:
+   - Workers show "initializing" (3 workers)
+   - Workers never transition to "ready" state
+4. Verified Docker image availability:
+   - `docker manifest inspect ghcr.io/fsikora/yt-translate/audio:latest` returns "denied"
+   - Image does not exist or requires authentication
+
+**Root Cause:**
+The Docker image `ghcr.io/fsikora/yt-translate/audio:latest` has not been built and pushed to GHCR.
+RunPod workers are failing to start because they cannot pull the container image.
+
+**Endpoint Details:**
+- Endpoint ID: 6ml08xitszksx7
+- Template ID: k0iwwtx14x
+- GPU: RTX 4090
+- Workers: 0-3
+
+**Action Required:**
+1. Login to GHCR: `docker login ghcr.io -u fsikora`
+2. Build image: `docker build -f runpod/audio/Dockerfile -t ghcr.io/fsikora/yt-translate/audio:latest .`
+3. Push image: `docker push ghcr.io/fsikora/yt-translate/audio:latest`
+4. Wait for workers to pull new image and become ready
+5. Re-run test jobs
+
+**Test Command (ready to use):**
+```bash
+source .env && curl -X POST "https://api.runpod.ai/v2/6ml08xitszksx7/run" \
+  -H "Authorization: Bearer ${RUNPOD_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"video_url": "https://www.youtube.com/watch?v=_WnGFVhuJps"}}'
+```
+
+**Check Health Command:**
+```bash
+source .env && curl -s "https://api.runpod.ai/v2/6ml08xitszksx7/health" \
+  -H "Authorization: Bearer ${RUNPOD_API_KEY}"
+```
+
+---
