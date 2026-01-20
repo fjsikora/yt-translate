@@ -1,0 +1,86 @@
+# Docker Compose for Local Development
+#
+# This configuration allows testing the RunPod worker locally with GPU support.
+# Models are cached in Docker volumes to avoid re-downloading on container restarts.
+#
+# Usage:
+#   docker compose up        # Start the worker
+#   docker compose up -d     # Start in detached mode
+#   docker compose down      # Stop and remove containers
+#   docker compose logs -f   # Follow logs
+#
+# Test with curl:
+#   curl -X POST http://localhost:8000/runsync \
+#     -H "Content-Type: application/json" \
+#     -d '{"input": {"video_url": "https://example.com/video.mp4", "target_lang": "es"}}'
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: runpod/Dockerfile
+
+    # GPU Configuration for NVIDIA GPUs
+    # Requires: nvidia-docker2 or Docker 19.03+ with nvidia-container-toolkit
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # Environment variables from .env file
+    env_file:
+      - .env
+
+    # Additional environment variables for local development
+    environment:
+      # RunPod local development mode
+      RUNPOD_DEBUG: "true"
+      # Use local file system for outputs (no Supabase upload in local mode)
+      # Note: The handler will still try to upload; ensure Supabase vars are set
+
+    # Expose port for local testing
+    # RunPod serverless uses port 8000 by default in development
+    ports:
+      - "8000:8000"
+
+    # Volume mounts for model caching
+    # This avoids re-downloading large ML models on every container restart
+    volumes:
+      # Hugging Face models (transformers, Qwen3-32B)
+      - hf_cache:/root/.cache/huggingface
+      # PyTorch Hub models (Demucs)
+      - torch_cache:/root/.cache/torch
+      # Whisper models
+      - whisper_cache:/root/.cache/whisper
+      # Temporary work directory for job outputs
+      - ./output:/tmp/yt-translate-output
+
+    # Health check to verify the worker is running
+    healthcheck:
+      test: ["CMD", "python", "-c", "import runpod; print('healthy')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Shared memory size for PyTorch
+    # Increase if you see "RuntimeError: DataLoader worker is killed"
+    shm_size: "8gb"
+
+    # Container name for easy reference
+    container_name: yt-translate-worker
+
+# Named volumes for persistent model caching
+volumes:
+  hf_cache:
+    name: yt-translate-hf-cache
+  torch_cache:
+    name: yt-translate-torch-cache
+  whisper_cache:
+    name: yt-translate-whisper-cache

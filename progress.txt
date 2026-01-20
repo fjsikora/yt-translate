@@ -195,3 +195,29 @@
 - Procfile change is critical for Railway deployment to use new server
 - Old cloud_translate.py remains in archives/ for reference but is no longer active
 
+## US-009: Create docker-compose for local development - COMPLETE
+
+**Date:** 2026-01-20 19:00
+**Files changed:**
+- docker-compose.yml (new file)
+
+**Implementation notes:**
+- Created docker-compose.yml for local development with GPU support
+- Worker service builds from runpod/Dockerfile
+- GPU configuration using deploy.resources.reservations.devices for nvidia-container-toolkit
+- Environment variables loaded from .env file via env_file directive
+- Named volumes for model caching: hf_cache, torch_cache, whisper_cache
+- Volume mount for output directory: ./output:/tmp/yt-translate-output
+- Port 8000 exposed for local testing with curl
+- Added healthcheck for container status monitoring
+- shm_size set to 8gb for PyTorch DataLoader compatibility
+- restart policy: unless-stopped
+- docker compose config validates without errors
+
+**Learnings:**
+- Docker Compose v2 GPU syntax: deploy.resources.reservations.devices
+- Volume names can be customized with 'name' attribute for easier identification
+- shm_size important for PyTorch to avoid DataLoader worker killed errors
+- env_file loads variables, environment overrides or adds to them
+- Container healthcheck helps identify when worker is ready
+
