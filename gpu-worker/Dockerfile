@@ -37,24 +37,12 @@ RUN python -m pip install --upgrade pip
 WORKDIR /app
 
 # Copy requirements first for better caching
-COPY requirements.txt /app/requirements.txt
+COPY self-hosted/requirements.txt /app/self-hosted/requirements.txt
 
-# Install Python dependencies from main requirements.txt
+# Install Python dependencies from dedicated self-hosted requirements
+# All versions are pinned for reproducibility
 # Note: Using --no-cache-dir to reduce image size
-RUN pip install --no-cache-dir -r /app/requirements.txt
-
-# Install additional Self-hosted GPU-specific dependencies
-# (transformers, accelerate, bitsandbytes for Qwen3-32B LLM translation)
-# (self-hosted SDK for serverless handler)
-# (supabase for storage upload)
-RUN pip install --no-cache-dir \
-    self-hosted \
-    supabase \
-    transformers \
-    accelerate \
-    bitsandbytes \
-    scipy \
-    payment-provider
+RUN pip install --no-cache-dir -r /app/self-hosted/requirements.txt
 
 # Pre-download Whisper medium model
 # The model will be cached in ~/.cache/whisper
