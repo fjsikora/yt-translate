@@ -20,6 +20,8 @@ from urllib.request import urlretrieve
 import runpod
 import torch
 import torchaudio
+import soundfile as sf
+import numpy as np
 
 
 def log(msg: str) -> None:
@@ -89,7 +91,12 @@ def run_demucs(audio_path: str) -> dict:
     model = get_model()
 
     log("Loading audio...")
-    wav, sr = torchaudio.load(audio_path)
+    # Use soundfile instead of torchaudio to avoid torchcodec dependency issues
+    audio_data, sr = sf.read(audio_path)
+    # Convert to torch tensor and ensure correct shape (channels, samples)
+    wav = torch.from_numpy(audio_data.T if audio_data.ndim > 1 else audio_data).float()
+    if wav.ndim == 1:
+        wav = wav.unsqueeze(0)  # Add channel dimension for mono
 
     # Demucs expects stereo, convert if mono
     if wav.shape[0] == 1:
