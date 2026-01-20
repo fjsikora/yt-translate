@@ -48,6 +48,7 @@ from config import (
     VOICE_SAMPLE_DURATION_SECONDS,
     BACKGROUND_VOLUME,
 )
+from llm_translate import translate_segments_llm
 
 WHISPER_MODEL = "base"
 OUTPUT_DIR = Path("output")
@@ -341,34 +342,17 @@ def transcribe_audio(audio_path: Path, tracker: ProgressTracker, update_fn: Call
 
 
 def translate_segments(segments: list[dict], target_lang: str, tracker: ProgressTracker, update_fn: Callable) -> list[dict]:
-    """Translate each segment while preserving timing info."""
-    lang_code = GOOGLE_LANG_CODES.get(target_lang, target_lang.lower()[:2])
+    """Translate each segment using LLM (Qwen3-32B) with Google Translate fallback.
 
-    translated_segments = []
-    total = len(segments)
-
-    for i, seg in enumerate(segments):
-        tracker.update_detail("translate", f"Translating segment {i+1}/{total}...")
+    This function delegates to translate_segments_llm() which uses Qwen3-32B
+    for high-quality context-aware translations, falling back to Google
+    Translate if the LLM is unavailable or fails.
+    """
+    def progress_callback(detail: str):
+        tracker.update_detail("translate", detail)
         update_fn()
 
-        text = seg["text"]
-        if text:
-            try:
-                translated_text = GoogleTranslator(source='auto', target=lang_code).translate(text)
-            except Exception:
-                translated_text = text  # Fallback to original if translation fails
-        else:
-            translated_text = ""
-
-        translated_segments.append({
-            "start": seg["start"],
-            "end": seg["end"],
-            "duration": seg["duration"],
-            "original_text": text,
-            "translated_text": translated_text
-        })
-
-    return translated_segments
+    return translate_segments_llm(segments, target_lang, progress_callback)
 
 
 def synthesize_segments(segments: list[dict], voice_sample: Path, lang_code: str,
