@@ -45,8 +45,8 @@
         "Volume: 10GB at /runpod-volume"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Template created with ID 0m5zlkzse8. Image: ghcr.io/fsikora/yt-translate/chatterbox:latest. Volume at /workspace (RunPod default). Env vars configured."
     },
     {
       "id": "US-004",

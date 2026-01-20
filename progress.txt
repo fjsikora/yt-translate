@@ -386,3 +386,24 @@ User must grant RunPod MCP tool permissions. When Claude requests permission to 
 - isServerless=true is important for serverless templates
 - Template ports default to 8888/http and 22/tcp even for serverless
 
+## US-003: Create Chatterbox Worker Template - COMPLETE
+
+**Date:** 2026-01-20
+**Files changed:**
+- prd.json (updated passes to true)
+
+**Implementation notes:**
+- Created template via mcp__runpod__create-template
+- Template ID: 0m5zlkzse8
+- Template name: yt-translate-chatterbox
+- Image: ghcr.io/fsikora/yt-translate/chatterbox:latest
+- Container disk: 30GB
+- Volume: 10GB at /workspace (RunPod default mount path, ignores /runpod-volume)
+- Environment variables configured via update-template: SUPABASE_URL, SUPABASE_SERVICE_KEY
+- Docker start command: ["python", "runpod/chatterbox/handler.py"]
+
+**Learnings:**
+- Same pattern as audio template - create first, then update to add env vars
+- Chatterbox doesn't need HUGGINGFACE_TOKEN (only SUPABASE vars)
+- RunPod templates now ready: audio (k0iwwtx14x), chatterbox (0m5zlkzse8)
+
