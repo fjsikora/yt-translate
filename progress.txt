@@ -806,3 +806,44 @@ docker push ghcr.io/fsikora/yt-translate/audio:latest
 ```
 
 ---
+
+## US-007: Test Audio Endpoint - BLOCKED (Iteration 2026-01-20)
+
+**Date:** 2026-01-20
+**Status:** BLOCKED - Docker image still not available in GHCR
+
+**Verification Performed:**
+1. Branch verified: ralph/runpod-deployment ✓
+2. Endpoint status checked via MCP: 6ml08xitszksx7 exists ✓
+3. All 5 workers show desiredStatus: "EXITED" (scaled to zero)
+4. Docker manifest inspect: ghcr.io/fsikora/yt-translate/audio:latest - "denied" (image not accessible)
+
+**Root Cause:**
+Workers cannot start because they cannot pull the container image from GHCR. The image either:
+- Does not exist (never built/pushed), OR
+- Is private and RunPod lacks credentials to pull it
+
+**Action Required by User:**
+```bash
+# 1. Login to GHCR
+docker login ghcr.io -u fsikora
+
+# 2. Build image
+docker build -f runpod/audio/Dockerfile -t ghcr.io/fsikora/yt-translate/audio:latest .
+
+# 3. Push image
+docker push ghcr.io/fsikora/yt-translate/audio:latest
+
+# 4. Verify image is public (or add registry auth to RunPod)
+```
+
+**Test Commands (ready when image is available):**
+```bash
+# Submit test job
+source .env && curl -X POST "https://api.runpod.ai/v2/6ml08xitszksx7/run" \
+  -H "Authorization: Bearer ${RUNPOD_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"video_url": "https://www.youtube.com/watch?v=_WnGFVhuJps"}}'
+```
+
+---
