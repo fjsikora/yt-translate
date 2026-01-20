@@ -221,3 +221,34 @@
 - env_file loads variables, environment overrides or adds to them
 - Container healthcheck helps identify when worker is ready
 
+## US-010: Add health check and monitoring - COMPLETE
+
+**Date:** 2026-01-20 20:00
+**Files changed:**
+- runpod/handler.py (added health check and monitoring functions)
+- runpod/requirements.txt (added psutil dependency)
+
+**Implementation notes:**
+- Added check_gpu_availability() function to report GPU info (availability, count, names, CUDA version)
+- Added check_loaded_models() function to check if ML packages are importable (whisper, demucs, pyannote, chatterbox, transformers)
+- Added get_memory_usage() function to report RAM and GPU memory usage in GB
+- Added log_memory_usage() helper for consistent memory logging at different stages
+- Added log_startup_info() that runs at worker startup with full health report
+- Handler now logs memory before and after job processing
+- Handler now includes job_duration_seconds in response for all jobs (success and failure)
+- Handler now includes error_trace field in failed job responses with full traceback
+- Added psutil==5.9.8 to requirements for memory monitoring
+- Syntax checks pass
+
+**Learnings:**
+- psutil.virtual_memory() provides system RAM stats
+- torch.cuda.memory_allocated() vs memory_reserved() - allocated is actual usage, reserved is cached
+- torch.cuda.get_device_properties(i).total_memory gives total GPU VRAM
+- Import checks for ML packages are fast and don't load models into memory
+- Detailed error traces help debugging failed jobs in RunPod logs
+
+## ALL USER STORIES COMPLETE
+
+All 10 user stories have been implemented and pass their acceptance criteria.
+The RunPod deployment migration is complete.
+
