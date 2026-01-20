@@ -77,8 +77,8 @@
         "Document endpoint ID"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": "Template ID: k0iwwtx14x. Funds added - ready to create endpoint."
+      "passes": true,
+      "notes": "Endpoint created: 6ml08xitszksx7. Name: yt-audio -fb. GPU: RTX 4090. Workers: 0-4 (quota limited, vLLM uses 1). Flashboot enabled."
     },
     {
       "id": "US-006",
