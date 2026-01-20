@@ -72,3 +72,28 @@
 - Regex parsing with numbered format [N] is robust for extracting translations
 - Import check in py_compile is sufficient; full import requires venv dependencies
 
+## US-004: Create RunPod handler - COMPLETE
+
+**Date:** 2026-01-20 14:00
+**Files changed:**
+- runpod/__init__.py (new package)
+- runpod/handler.py (new module)
+
+**Implementation notes:**
+- Created runpod/handler.py with handler(job) function as RunPod entrypoint
+- validate_input() validates video_url (required), target_lang (required), voice_sample_url (optional)
+- Uses translate_video() from translate.py with progress_callback
+- Progress reporting via runpod.serverless.progress_update() for real-time job status
+- Uploads result to Supabase Storage using existing db.py functions
+- Generates 24-hour signed URL for result download (SIGNED_URL_EXPIRATION_LONG from config)
+- Returns structured output: status, output_url, duration, segments_count, speakers_count
+- Error handling: ValueError for input validation, RuntimeError with traceback for unexpected errors
+- Cleanup: work directory deleted after job completion (even on failure)
+- refresh_worker=True ensures clean state between jobs (important for ML models)
+
+**Learnings:**
+- db.py already has upload_translation_to_storage() and get_translation_signed_url()
+- config.py has SIGNED_URL_EXPIRATION_LONG = 86400 (24 hours)
+- RunPod SDK: runpod.serverless.start() with handler config, progress_update(job, msg)
+- sys.path.insert needed to import from parent directory in handler.py
+
