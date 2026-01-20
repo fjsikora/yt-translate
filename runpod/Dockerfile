@@ -37,24 +37,12 @@ RUN python -m pip install --upgrade pip
 WORKDIR /app
 
 # Copy requirements first for better caching
-COPY requirements.txt /app/requirements.txt
+COPY runpod/requirements.txt /app/runpod/requirements.txt
 
-# Install Python dependencies from main requirements.txt
+# Install Python dependencies from dedicated runpod requirements
+# All versions are pinned for reproducibility
 # Note: Using --no-cache-dir to reduce image size
-RUN pip install --no-cache-dir -r /app/requirements.txt
-
-# Install additional RunPod-specific dependencies
-# (transformers, accelerate, bitsandbytes for Qwen3-32B LLM translation)
-# (runpod SDK for serverless handler)
-# (supabase for storage upload)
-RUN pip install --no-cache-dir \
-    runpod \
-    supabase \
-    transformers \
-    accelerate \
-    bitsandbytes \
-    scipy \
-    stripe
+RUN pip install --no-cache-dir -r /app/runpod/requirements.txt
 
 # Pre-download Whisper medium model
 # The model will be cached in ~/.cache/whisper
