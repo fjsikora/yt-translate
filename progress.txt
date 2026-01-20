@@ -121,3 +121,30 @@
 - Dockerfile approach: install base requirements.txt then add RunPod-specific deps
 - US-006 will create dedicated runpod/requirements.txt for cleaner dependency management
 
+## US-006: Create requirements-runpod.txt - COMPLETE
+
+**Date:** 2026-01-20 16:00
+**Files changed:**
+- runpod/requirements.txt (new file)
+- runpod/Dockerfile (updated to use new requirements)
+
+**Implementation notes:**
+- Created dedicated runpod/requirements.txt with all ML dependencies
+- All versions pinned for reproducibility:
+  - torch==2.5.1, torchaudio==2.5.1 (stable CUDA 12.4 compatible)
+  - openai-whisper==20240930 (latest stable)
+  - demucs==4.0.1, pyannote.audio==3.3.2, chatterbox-tts==0.1.6
+  - transformers==4.47.1, accelerate==1.2.1, bitsandbytes==0.45.0 (for Qwen3-32B)
+  - runpod==1.7.4, supabase==2.11.0, httpx==0.27.2
+- numpy pinned to >=1.26.0,<2.0.0 for compatibility
+- Updated Dockerfile to use dedicated requirements file instead of scattered installs
+- Removed redundant pip install commands from Dockerfile
+- Syntax checks pass, Dockerfile validates without warnings
+
+**Learnings:**
+- pip index versions <package> gives quick access to available versions
+- Keeping numpy <2.0 avoids compatibility issues with older packages
+- pyannote.audio 4.x has breaking changes; 3.3.2 is the last stable 3.x
+- Consolidating requirements makes Dockerfile cleaner and more maintainable
+- torch/torchaudio versions must match for compatibility
+
