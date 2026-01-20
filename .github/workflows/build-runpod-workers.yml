@@ -6,10 +6,7 @@ on:
       - main
       - ralph/runpod-deployment
     paths:
-      - 'runpod/diarization/**'
       - 'runpod/demucs/**'
-      - 'runpod/chatterbox/**'
-      - 'runpod/musetalk/**'
       - '.github/workflows/build-runpod-workers.yml'
   workflow_dispatch:
 
@@ -18,33 +15,6 @@ env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/yt-translate
 
 jobs:
-  build-diarization:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push diarization image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: runpod/diarization/Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}/diarization:latest
-            ${{ env.IMAGE_PREFIX }}/diarization:${{ github.sha }}
-
   build-demucs:
     runs-on: ubuntu-latest
     permissions:
@@ -71,57 +41,3 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}/demucs:latest
             ${{ env.IMAGE_PREFIX }}/demucs:${{ github.sha }}
-
-  build-chatterbox:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push chatterbox image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: runpod/chatterbox/Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}/chatterbox:latest
-            ${{ env.IMAGE_PREFIX }}/chatterbox:${{ github.sha }}
-
-  build-musetalk:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push musetalk image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: runpod/musetalk/Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}/musetalk:latest
-            ${{ env.IMAGE_PREFIX }}/musetalk:${{ github.sha }}

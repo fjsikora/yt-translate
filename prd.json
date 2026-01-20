@@ -10,12 +10,12 @@
       "notes": "Deploy from RunPod Hub - search 'Faster Whisper'"
     },
     "diarization": {
-      "id": "x0uczgtiv34udm",
-      "name": "yt-diarization -fb",
-      "templateId": "l3y9gc9cc5",
+      "id": "r3qmbks8y3847n",
+      "name": "Diarization (Hub)",
       "gpu": "RTX 4090",
       "workers": "0-1",
-      "status": "created"
+      "status": "deployed",
+      "notes": "Pre-built from RunPod Hub"
     },
     "demucs": {
       "id": "iawxgwernfm5s0",
@@ -26,20 +26,20 @@
       "status": "created"
     },
     "vllm": {
-      "id": "mo5vt1mlci0mtw",
-      "name": "yt-vllm -fb",
-      "templateId": "gxd9dfcy8l",
+      "id": "700ucdghfohvrg",
+      "name": "vLLM Qwen3-32B (Hub)",
       "gpu": "A100 80GB",
       "workers": "0-1",
-      "status": "working"
+      "status": "deployed",
+      "notes": "Deployed from RunPod Hub"
     },
     "chatterbox": {
-      "id": "hawxheiv8ny1ny",
-      "name": "yt-chatterbox -fb",
-      "templateId": "u3whcsnovc",
+      "id": "ia3chyjq7xkmn0",
+      "name": "Chatterbox (Hub)",
       "gpu": "RTX 4090",
       "workers": "0-1",
-      "status": "created"
+      "status": "deployed",
+      "notes": "Pre-built from RunPod Hub"
     }
   },
   "userStories": [

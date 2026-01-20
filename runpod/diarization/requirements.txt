@@ -1,7 +1,0 @@
-# Pyannote Diarization Worker Dependencies
-# Slim requirements - models downloaded at runtime
-
-runpod>=1.7.0
-torch>=2.0.0
-torchaudio>=2.0.0
-pyannote.audio>=3.1.0

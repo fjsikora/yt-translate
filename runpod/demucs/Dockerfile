@@ -29,6 +29,12 @@ RUN python -m pip install --upgrade pip
 # Set working directory
 WORKDIR /app
 
+# Install PyTorch 2.5.x (avoid 2.6 compatibility issues)
+RUN pip install --no-cache-dir \
+    torch==2.5.1 \
+    torchaudio==2.5.1 \
+    --index-url https://download.pytorch.org/whl/cu124
+
 # Copy and install requirements
 COPY runpod/demucs/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
