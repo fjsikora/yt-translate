@@ -79,7 +79,12 @@ def download_audio(url: str, output_path: str) -> str:
 def audio_to_base64(audio_tensor: torch.Tensor, sample_rate: int) -> str:
     """Convert audio tensor to base64 WAV string."""
     buffer = io.BytesIO()
-    torchaudio.save(buffer, audio_tensor, sample_rate, format="wav")
+    # Use soundfile instead of torchaudio to avoid torchcodec dependency
+    # soundfile expects (samples, channels) so transpose from (channels, samples)
+    audio_np = audio_tensor.numpy()
+    if audio_np.ndim > 1:
+        audio_np = audio_np.T  # (channels, samples) -> (samples, channels)
+    sf.write(buffer, audio_np, sample_rate, format="WAV")
     buffer.seek(0)
     return base64.b64encode(buffer.read()).decode("utf-8")
 
