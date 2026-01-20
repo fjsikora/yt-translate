@@ -123,7 +123,7 @@ def download_file(url: str, output_path: str) -> str:
     """Download a file from URL."""
     import httpx
 
-    with httpx.Client(timeout=60.0) as client:
+    with httpx.Client(timeout=60.0, follow_redirects=True) as client:
         response = client.get(url)
         response.raise_for_status()
         with open(output_path, "wb") as f:
