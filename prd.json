@@ -110,7 +110,7 @@
       ],
       "priority": 7,
       "passes": false,
-      "notes": ""
+      "notes": "BLOCKED: 1) Docker image ghcr.io/fsikora/yt-translate/audio:latest must be built and pushed to GHCR first. 2) RUNPOD_API_KEY not available in environment - needed to submit test jobs via API. Endpoint exists: 6ml08xitszksx7. Action required: Build/push Docker image, provide API key."
     },
     {
       "id": "US-008",

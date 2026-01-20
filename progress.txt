@@ -574,3 +574,47 @@ All endpoint-related stories are blocked until funding is resolved.
 - mcp__runpod__update-endpoint allows changing workersMax on existing endpoints
 - Final endpoint distribution: vLLM (1), audio (3), chatterbox (1) = 5 total
 
+
+## US-007: Test Audio Endpoint - BLOCKED
+
+**Date:** 2026-01-20
+**Status:** BLOCKED - Prerequisites not met
+
+**Blockers Identified:**
+1. **Docker Image Not Available**
+   - Templates reference: ghcr.io/fsikora/yt-translate/audio:latest
+   - This image must be built and pushed to GHCR before the endpoint can be tested
+   - Dockerfile exists at: runpod/audio/Dockerfile
+
+2. **API Key Not Available**
+   - RUNPOD_API_KEY environment variable not set
+   - Cannot submit test jobs via RunPod API without authentication
+   - RunPod MCP tools work (authenticated) but there's no "run job" MCP tool
+
+**Endpoint Status:**
+- Endpoint ID: 6ml08xitszksx7
+- Endpoint Name: yt-audio -fb
+- Template: k0iwwtx14x (yt-translate-audio)
+- Workers: Scaled to zero (desiredStatus: EXITED)
+- GPU: RTX 4090
+
+**What's Needed to Proceed:**
+1. Build Docker image: `docker build -f runpod/audio/Dockerfile -t ghcr.io/fsikora/yt-translate/audio:latest .`
+2. Push to GHCR: `docker push ghcr.io/fsikora/yt-translate/audio:latest`
+3. Either:
+   a. Set RUNPOD_API_KEY environment variable for automated testing, OR
+   b. Test manually via RunPod dashboard
+
+**Test Command (once API key available):**
+```bash
+curl -X POST "https://api.runpod.ai/v2/6ml08xitszksx7/run" \
+  -H "Authorization: Bearer ${RUNPOD_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    }
+  }'
+```
+
+---
