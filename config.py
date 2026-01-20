@@ -41,7 +41,8 @@ SIGNED_URL_EXPIRATION_LONG = 86400  # Long-lived signed URL expiration (24 hours
 # ============================================================================
 # Audio Processing Constants
 # ============================================================================
-BACKGROUND_VOLUME_DEFAULT = 0.3  # Default volume level for background audio (30%)
+WHISPER_SAMPLE_RATE = 16000  # Whisper expects 16kHz audio
+BACKGROUND_VOLUME = 1.0  # Full original volume for better UX (100%)
 
 # ============================================================================
 # Replicate Model Names

@@ -8,6 +8,10 @@ Translates YouTube videos to other languages using:
 - deep-translator: Text translation (Google backend)
 - Chatterbox: Voice cloning TTS
 - ffmpeg: Audio/video merging
+
+Provides two interfaces:
+- translate_video(): Programmatic API for Self-hosted GPU handler
+- main(): Interactive CLI with Rich console output
 """
 
 import os
@@ -15,10 +19,11 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional, Callable, TypedDict
 
-# Force GPU 1 (RTX 5060 Ti) before importing torch
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+# Force GPU 1 (RTX 5060 Ti) before importing torch - skip if already set
+if "CUDA_VISIBLE_DEVICES" not in os.environ:
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 import torch
 import whisper
@@ -37,10 +42,31 @@ from languages import (
     GOOGLE_LANG_CODES_BY_NAME as GOOGLE_LANG_CODES,
     ISO_639_1_TO_639_2,
 )
+from config import (
+    WHISPER_SAMPLE_RATE,
+    CHATTERBOX_SAMPLE_RATE,
+    VOICE_SAMPLE_DURATION_SECONDS,
+    BACKGROUND_VOLUME,
+)
 
 WHISPER_MODEL = "base"
 OUTPUT_DIR = Path("output")
 console = Console()
+
+
+class TranslationResult(TypedDict):
+    """Result returned by translate_video()."""
+    output_url: str  # Path/URL to the translated video file
+    duration: float  # Duration of the output video in seconds
+    segments_count: int  # Number of transcript segments
+    speakers_count: int  # Number of distinct speakers detected
+
+
+class ProgressInfo(TypedDict):
+    """Progress information passed to progress_callback."""
+    stage: str  # Current stage name (download, transcribe, translate, etc.)
+    progress_pct: float  # Progress percentage (0-100)
+    detail: str  # Human-readable detail about current operation
 
 
 class ProgressTracker:
@@ -263,10 +289,10 @@ def download_youtube(url: str, tracker: ProgressTracker, update_fn: Callable) ->
         tracker.update_detail("download", "Extracting audio with ffmpeg...")
         update_fn()
 
-        # Extract audio using ffmpeg
+        # Extract audio using ffmpeg at Whisper's expected sample rate
         subprocess.run([
             'ffmpeg', '-i', str(video_path),
-            '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
+            '-vn', '-acodec', 'pcm_s16le', '-ar', str(WHISPER_SAMPLE_RATE), '-ac', '1',
             '-y', str(audio_path)
         ], capture_output=True, check=True)
 
@@ -866,8 +892,202 @@ def check_dependencies():
         sys.exit(1)
 
 
+def translate_video(
+    video_url: str,
+    target_lang: str,
+    output_dir: Optional[Path] = None,
+    progress_callback: Optional[Callable[[ProgressInfo], None]] = None,
+) -> TranslationResult:
+    """
+    Translate a YouTube video to another language.
+
+    This is the programmatic API for the translation pipeline, designed to be
+    called by the Self-hosted GPU handler. It works without Rich console output when
+    progress_callback is provided.
+
+    Args:
+        video_url: YouTube video URL to translate
+        target_lang: Target language name (e.g., "Spanish", "French") or code (e.g., "es", "fr")
+        output_dir: Directory for output files. Defaults to OUTPUT_DIR.
+        progress_callback: Optional callback for progress updates. Receives ProgressInfo dict
+                          with stage, progress_pct, and detail fields.
+
+    Returns:
+        TranslationResult dict with:
+        - output_path: Path to the translated video file
+        - duration: Duration of the output video in seconds
+        - segments_count: Number of transcript segments
+        - speakers_count: Number of distinct speakers detected
+
+    Raises:
+        ValueError: If target_lang is not a valid language
+        RuntimeError: If translation fails at any stage
+    """
+    # Resolve output directory
+    work_dir = Path(output_dir) if output_dir else OUTPUT_DIR
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    # Resolve target language
+    lang_name = None
+    lang_code = None
+    target_lower = target_lang.lower()
+
+    for name, code in SUPPORTED_LANGUAGES.items():
+        if target_lower == name.lower() or target_lower == code:
+            lang_name = name
+            lang_code = code
+            break
+
+    if not lang_name or not lang_code:
+        raise ValueError(f"Unsupported language: {target_lang}")
+
+    # Stage definitions for progress calculation
+    stages = [
+        ("download", "Download Video"),
+        ("separate", "Separate Audio"),
+        ("diarize", "Identify Speakers"),
+        ("transcribe", "Transcribe Audio"),
+        ("translate", "Translate Text"),
+        ("synthesize", "Synthesize Voice"),
+        ("mix", "Mix Audio"),
+        ("merge", "Merge Audio/Video"),
+    ]
+    total_stages = len(stages)
+
+    def report_progress(stage: str, detail: str, stage_idx: int, sub_progress: float = 0.0):
+        """Report progress via callback if provided."""
+        if progress_callback:
+            # Calculate overall progress: each stage is equal weight
+            base_pct = (stage_idx / total_stages) * 100
+            stage_pct = (1 / total_stages) * sub_progress * 100
+            progress_pct = base_pct + stage_pct
+            progress_callback({
+                "stage": stage,
+                "progress_pct": min(progress_pct, 100.0),
+                "detail": detail,
+            })
+
+    # Create a no-op tracker for functions that require one
+    class NoOpTracker:
+        """Minimal tracker for non-CLI mode."""
+        def update_detail(self, stage_id: str, detail: str):
+            pass
+
+    tracker = NoOpTracker()
+
+    def noop_update():
+        pass
+
+    try:
+        # Stage 1: Download
+        report_progress("download", "Starting download...", 0)
+        video_path, audio_path, title = download_youtube(video_url, tracker, noop_update)
+        report_progress("download", f"Downloaded: {title[:50]}", 0, 1.0)
+
+        # Stage 2: Separate audio
+        report_progress("separate", "Loading Demucs model...", 1)
+        separator = AudioSeparator()
+        report_progress("separate", "Separating vocals from background...", 1, 0.3)
+        vocals, background, sep_sample_rate = separator.separate(audio_path)
+        report_progress("separate", "Saving separated audio files...", 1, 0.8)
+        vocals_path, background_path = separator.save_separated(
+            vocals, background, sep_sample_rate, work_dir
+        )
+        report_progress("separate", "Audio separation complete", 1, 1.0)
+
+        # Stage 3: Speaker diarization
+        report_progress("diarize", "Loading speaker diarization model...", 2)
+        diarizer = SpeakerDiarizer()
+        report_progress("diarize", "Identifying speakers in audio...", 2, 0.3)
+        diarization_segments = diarizer.diarize(vocals_path)
+        report_progress("diarize", "Extracting voice samples per speaker...", 2, 0.7)
+        # Use config values for voice sample extraction
+        speaker_samples = diarizer.extract_speaker_samples(
+            vocals_path,
+            work_dir,
+            diarization_segments,
+            target_duration=VOICE_SAMPLE_DURATION_SECONDS,
+            target_sample_rate=CHATTERBOX_SAMPLE_RATE,
+        )
+        num_speakers = len(speaker_samples)
+        report_progress("diarize", f"Found {num_speakers} speaker(s)", 2, 1.0)
+
+        # Stage 4: Transcribe
+        report_progress("transcribe", "Loading Whisper model...", 3)
+        segments = transcribe_audio(vocals_path, tracker, noop_update)
+        segments_count = len(segments)
+        report_progress("transcribe", f"Transcribed {segments_count} segments", 3, 1.0)
+
+        # Get total audio duration for synthesis
+        total_duration = segments[-1]["end"] if segments else 0.0
+
+        # Stage 5: Translate
+        report_progress("translate", "Starting translation...", 4)
+        translated_segments = translate_segments(segments, lang_name, tracker, noop_update)
+        report_progress("translate", f"Translated {len(translated_segments)} segments", 4, 1.0)
+
+        # Stage 6: Voice synthesis
+        report_progress("synthesize", "Loading TTS model...", 5)
+        if num_speakers > 1 and speaker_samples:
+            speech_audio = synthesize_segments_multi_speaker(
+                translated_segments,
+                diarization_segments,
+                speaker_samples,
+                lang_code,
+                total_duration,
+                tracker,
+                noop_update,
+            )
+        elif speaker_samples:
+            first_speaker = next(iter(speaker_samples))
+            voice_sample = speaker_samples[first_speaker]
+            speech_audio = synthesize_segments(
+                translated_segments, voice_sample, lang_code, total_duration, tracker, noop_update
+            )
+        else:
+            speech_audio = synthesize_segments(
+                translated_segments, audio_path, lang_code, total_duration, tracker, noop_update
+            )
+        report_progress("synthesize", "Voice synthesis complete", 5, 1.0)
+
+        # Stage 7: Mix audio with BACKGROUND_VOLUME from config
+        report_progress("mix", "Mixing speech with background audio...", 6)
+        mixed_audio = mix_audio_with_background(
+            speech_audio, background_path, background_volume=BACKGROUND_VOLUME
+        )
+        report_progress("mix", "Audio mixing complete", 6, 1.0)
+
+        # Stage 8: Generate subtitles and merge
+        report_progress("merge", "Generating subtitles...", 7)
+        subtitle_path = generate_srt(translated_segments, work_dir / "subtitles.srt")
+        report_progress("merge", "Merging video, audio, and subtitles...", 7, 0.5)
+
+        safe_title = "".join(c for c in title if c.isalnum() or c in " -_")[:50]
+        subtitle_lang_code = get_iso_639_2_code(lang_code)
+
+        # Use NoOpTracker for merge which needs a tracker
+        output_path = merge_audio_video(
+            video_path, mixed_audio, safe_title, tracker, noop_update,
+            subtitle_path=subtitle_path, subtitle_lang=subtitle_lang_code
+        )
+        report_progress("merge", "Translation complete", 7, 1.0)
+
+        # Get output video duration
+        output_duration = total_duration  # Use audio duration as approximation
+
+        return TranslationResult(
+            output_url=str(output_path),
+            duration=output_duration,
+            segments_count=segments_count,
+            speakers_count=num_speakers,
+        )
+
+    except Exception as e:
+        raise RuntimeError(f"Translation failed: {e}") from e
+
+
 def main():
-    """Main entry point."""
+    """Main entry point for CLI. Uses translate_video() internally."""
     console.print(Panel.fit(
         "[bold blue]YouTube Video Translator[/bold blue]\n"
         "[dim]Powered by Whisper, Chatterbox & Google Translate[/dim]",
@@ -886,148 +1106,74 @@ def main():
 
     # Get user input
     url = prompt_url()
-    lang_name, lang_code = prompt_language()
+    lang_name, _ = prompt_language()
 
     console.print()
 
-    # Create progress tracker
+    # Create progress tracker for Rich display
     tracker = ProgressTracker(url, lang_name)
+    start_time = time.time()
 
-    # Run the pipeline with live display
+    # Track current stage for proper Rich display
+    current_stage: Optional[str] = None
+
+    def progress_callback(info: ProgressInfo):
+        """Bridge translate_video progress to Rich tracker display."""
+        nonlocal current_stage
+
+        stage = info["stage"]
+        detail = info["detail"]
+
+        # Start new stage if changed
+        if stage != current_stage:
+            # Complete previous stage if any
+            if current_stage is not None:
+                tracker.complete_stage(current_stage, "")
+            tracker.start_stage(stage, detail)
+            current_stage = stage
+        else:
+            tracker.update_detail(stage, detail)
+
+    # Run the pipeline with live display, using translate_video() internally
     with Live(tracker.render(), console=console, refresh_per_second=4) as live:
-        def update():
+        def update_display():
             live.update(tracker.render())
 
+        # Create a wrapper callback that also updates the display
+        def callback_with_display(info: ProgressInfo):
+            progress_callback(info)
+            update_display()
+
         try:
-            # Stage 1: Download
-            tracker.start_stage("download", "Starting download...")
-            update()
-            video_path, audio_path, title = download_youtube(url, tracker, update)
-            tracker.complete_stage("download", f"Downloaded: {title[:50]}")
-            update()
-
-            # Stage 2: Separate audio (vocals from background)
-            tracker.start_stage("separate", "Loading Demucs model...")
-            update()
-            separator = AudioSeparator()
-            tracker.update_detail("separate", "Separating vocals from background...")
-            update()
-            vocals, background, sep_sample_rate = separator.separate(audio_path)
-            tracker.update_detail("separate", "Saving separated audio files...")
-            update()
-            vocals_path, background_path = separator.save_separated(
-                vocals, background, sep_sample_rate, OUTPUT_DIR
+            result = translate_video(
+                video_url=url,
+                target_lang=lang_name,
+                output_dir=OUTPUT_DIR,
+                progress_callback=callback_with_display,
             )
-            tracker.complete_stage("separate", f"Separated: {vocals_path.name}, {background_path.name}")
-            update()
 
-            # Stage 3: Speaker diarization (identify speakers in vocals)
-            tracker.start_stage("diarize", "Loading speaker diarization model...")
-            update()
-            diarizer = SpeakerDiarizer()
-            tracker.update_detail("diarize", "Identifying speakers in audio...")
-            update()
-            diarization_segments = diarizer.diarize(vocals_path)
-            tracker.update_detail("diarize", "Extracting voice samples per speaker...")
-            update()
-            speaker_samples = diarizer.extract_speaker_samples(
-                vocals_path, OUTPUT_DIR, diarization_segments
-            )
-            num_speakers = len(speaker_samples)
-            tracker.complete_stage("diarize", f"Found {num_speakers} speaker(s)")
-            update()
-
-            # Stage 4: Transcribe (using isolated vocals for cleaner input)
-            tracker.start_stage("transcribe", "Loading Whisper model...")
-            update()
-            segments = transcribe_audio(vocals_path, tracker, update)
-            total_chars = sum(len(s["text"]) for s in segments)
-            tracker.complete_stage("transcribe", f"{len(segments)} segments, {total_chars} chars")
-            update()
-
-            # Get total audio duration for synthesis
-            if segments:
-                total_duration = segments[-1]["end"]
-            else:
-                total_duration = 0
-
-            # Stage 5: Translate (segment by segment)
-            tracker.start_stage("translate", "Starting translation...")
-            update()
-            translated_segments = translate_segments(segments, lang_name, tracker, update)
-            translated_chars = sum(len(s["translated_text"]) for s in translated_segments)
-            tracker.complete_stage("translate", f"{len(translated_segments)} segments translated")
-            update()
-
-            # Stage 6: Voice synthesis (multi-speaker with per-speaker voice samples)
-            tracker.start_stage("synthesize", "Loading TTS model...")
-            update()
-            if num_speakers > 1 and speaker_samples:
-                # Use multi-speaker synthesis
-                speech_audio = synthesize_segments_multi_speaker(
-                    translated_segments,
-                    diarization_segments,
-                    speaker_samples,
-                    lang_code,
-                    total_duration,
-                    tracker,
-                    update,
-                )
-            elif speaker_samples:
-                # Single speaker - use the one speaker sample
-                first_speaker = next(iter(speaker_samples))
-                voice_sample = speaker_samples[first_speaker]
-                speech_audio = synthesize_segments(
-                    translated_segments, voice_sample, lang_code, total_duration, tracker, update
-                )
-            else:
-                # Fallback to original audio as voice sample
-                speech_audio = synthesize_segments(
-                    translated_segments, audio_path, lang_code, total_duration, tracker, update
-                )
-            tracker.complete_stage("synthesize", f"Generated {speech_audio.name}")
-            update()
-
-            # Stage 7: Mix audio (translated speech + original background)
-            tracker.start_stage("mix", "Mixing speech with background audio...")
-            update()
-            mixed_audio = mix_audio_with_background(
-                speech_audio, background_path, background_volume=0.3
-            )
-            tracker.complete_stage("mix", f"Mixed: {mixed_audio.name}")
-            update()
-
-            # Stage 8: Generate subtitles and merge everything
-            tracker.start_stage("merge", "Generating subtitles...")
-            update()
-            subtitle_path = generate_srt(translated_segments)
-            tracker.update_detail("merge", "Merging video, audio, and subtitles...")
-            update()
-            safe_title = "".join(c for c in title if c.isalnum() or c in " -_")[:50]
-            subtitle_lang_code = get_iso_639_2_code(lang_code)
-            output = merge_audio_video(
-                video_path, mixed_audio, safe_title, tracker, update,
-                subtitle_path=subtitle_path, subtitle_lang=subtitle_lang_code
-            )
-            tracker.complete_stage("merge", f"Output: {output.name}")
-            update()
+            # Mark final stage as complete
+            if current_stage:
+                tracker.complete_stage(current_stage, "Translation complete")
+            update_display()
 
         except Exception as e:
-            # Find the currently running stage and mark it as failed
-            for stage_id, status in tracker.stage_status.items():
-                if status == "running":
-                    tracker.fail_stage(stage_id, str(e))
-                    break
-            update()
+            # Mark current stage as failed
+            if current_stage:
+                tracker.fail_stage(current_stage, str(e))
+            update_display()
             console.print(f"\n[red]Error: {e}[/red]")
             raise
 
     # Final success message
+    elapsed = time.time() - start_time
     console.print()
     console.print(Panel.fit(
         f"[bold green]Translation Complete![/bold green]\n\n"
-        f"[bold]Output:[/bold] {output}\n"
-        f"[bold]Duration:[/bold] {tracker._format_time(time.time() - tracker.start_time)}",
+        f"[bold]Output:[/bold] {result['output_url']}\n"
+        f"[bold]Duration:[/bold] {tracker._format_time(elapsed)}\n"
+        f"[bold]Segments:[/bold] {result['segments_count']}\n"
+        f"[bold]Speakers:[/bold] {result['speakers_count']}",
         border_style="green"
     ))
 
