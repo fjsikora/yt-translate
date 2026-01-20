@@ -1,174 +1,161 @@
 {
-  "project": "runpod-deployment",
+  "project": "runpod-mcp-deployment",
   "branchName": "ralph/runpod-deployment",
-  "description": "Migrate video translation pipeline from Replicate APIs to self-hosted RunPod Serverless with Qwen3-32B LLM translation",
+  "description": "Deploy 3-container translation pipeline to RunPod Serverless using GitHub integration and MCP tools",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Archive cloud-based translation code",
-      "description": "As a developer, I want to archive the Replicate-based cloud translation code so that the codebase clearly reflects the new self-hosted architecture.",
+      "title": "Connect GitHub to RunPod",
+      "description": "As a developer, I want to connect my private GitHub repo to RunPod so that RunPod can build Docker images from my Dockerfiles.",
       "acceptanceCriteria": [
-        "cloud_translate.py moved to archives/cloud_translate.py",
-        "requirements-cloud.txt moved to archives/requirements-cloud.txt",
-        "archives/ directory has README explaining archived code",
-        "Main requirements.txt updated to remove Replicate/OpenAI deps",
-        "Typecheck passes"
+        "RunPod GitHub integration enabled in dashboard",
+        "Private yt-translate repo authorized",
+        "Verify RunPod can access repo (test build trigger)"
       ],
       "priority": 1,
       "passes": true,
-      "notes": "Completed in iteration 1. Files archived, requirements updated, syntax checks pass."
+      "notes": "Completed manually via RunPod dashboard. GitHub OAuth connected to private yt-translate repo."
     },
     {
       "id": "US-002",
-      "title": "Create translate_video function interface",
-      "description": "As a developer, I want a clean function interface in translate.py that can be called by the RunPod handler, returning structured results instead of using Rich CLI output.",
+      "title": "Create Audio Worker Template",
+      "description": "As a developer, I want to create a RunPod serverless template for the audio worker that builds from runpod/audio/Dockerfile.",
       "acceptanceCriteria": [
-        "New translate_video(video_url, target_lang, output_dir, progress_callback=None) function in translate.py",
-        "Returns dict with: output_url, duration, segments_count, speakers_count",
-        "Progress callback receives: stage, progress_pct, detail for status updates",
-        "Uses config.py settings: WHISPER_SAMPLE_RATE=16000, CHATTERBOX_SAMPLE_RATE=24000",
-        "Voice samples extracted at 24kHz mono per config (VOICE_SAMPLE_DURATION=10s)",
-        "Audio mixing uses BACKGROUND_VOLUME=1.0 (full original volume for better UX)",
-        "Existing CLI main() function calls new translate_video() internally",
-        "Works without Rich console when progress_callback is provided",
-        "Typecheck passes"
+        "Template created via mcp__runpod__create-template",
+        "Template name: yt-translate-audio",
+        "Image builds from GitHub repo Dockerfile",
+        "Environment variables configured: HUGGINGFACE_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_KEY",
+        "Container disk: 50GB (for model cache)",
+        "Volume: 20GB at /runpod-volume"
       ],
       "priority": 2,
       "passes": true,
-      "notes": "Completed in iteration 2. translate_video() API added with TypedDict types, progress callback support, config integration."
+      "notes": "Template created with ID k0iwwtx14x. Image: ghcr.io/fsikora/yt-translate/audio:latest. Volume at /workspace (RunPod default). Env vars configured."
     },
     {
       "id": "US-003",
-      "title": "Integrate Qwen3-32B for translation",
-      "description": "As a developer, I want to replace Google Translate with Qwen3-32B LLM for higher-quality context-aware translations.",
+      "title": "Create Chatterbox Worker Template",
+      "description": "As a developer, I want to create a RunPod serverless template for the Chatterbox TTS worker.",
       "acceptanceCriteria": [
-        "New llm_translate.py module with translate_segments_llm() function",
-        "Uses transformers library to load Qwen3-32B model (4-bit quantized for VRAM efficiency)",
-        "Batches segments per config: LLM_MAX_SEGMENTS_PER_BATCH=50, LLM_BATCH_OVERLAP=5",
-        "Uses LLM_MAX_TOKENS=4096 and LLM_TEMPERATURE=0.3 from config",
-        "Graceful fallback to Google Translate if LLM fails",
-        "Model loaded once and reused across segments",
-        "translate.py imports and uses new LLM translation",
-        "Typecheck passes"
+        "Template created via mcp__runpod__create-template",
+        "Template name: yt-translate-chatterbox",
+        "Image builds from runpod/chatterbox/Dockerfile",
+        "Environment variables: SUPABASE_URL, SUPABASE_SERVICE_KEY",
+        "Container disk: 30GB",
+        "Volume: 10GB at /runpod-volume"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": "Completed in iteration 3. Created llm_translate.py with Qwen3-32B 4-bit quantized, batch processing, fallback to Google Translate."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-004",
-      "title": "Create RunPod handler",
-      "description": "As a developer, I want a RunPod serverless handler that wraps translate_video() and handles job input/output.",
+      "title": "Configure vLLM Endpoint",
+      "description": "As a developer, I want to create a vLLM endpoint using RunPod's pre-built vLLM Worker template for Qwen3-32B translation.",
       "acceptanceCriteria": [
-        "runpod/handler.py created with handler(job) function",
-        "Accepts input: video_url, target_lang, voice_sample_url (optional)",
-        "Returns output: status, output_url, duration, error (if failed)",
-        "Uploads result to Supabase Storage and returns signed URL",
-        "Reports progress via RunPod job refresh mechanism",
-        "Handles errors gracefully with meaningful error messages",
-        "Typecheck passes"
+        "Use RunPod's official vLLM Worker template",
+        "Configure for Qwen/Qwen3-32B model",
+        "GPU: A100 80GB (required for 32B model)",
+        "OpenAI-compatible API enabled",
+        "Document endpoint URL and API format"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "Completed in iteration 4. Created runpod/handler.py with full job handling, input validation, Supabase upload, signed URL generation, progress reporting."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-005",
-      "title": "Create RunPod Dockerfile",
-      "description": "As a developer, I want a Dockerfile that packages all ML models and dependencies for RunPod deployment.",
+      "title": "Create Audio Serverless Endpoint",
+      "description": "As a developer, I want to create a serverless endpoint for the audio worker with auto-scaling.",
       "acceptanceCriteria": [
-        "runpod/Dockerfile created with CUDA 12.4 base image",
-        "ffmpeg installed via apt",
-        "All Python dependencies installed from requirements.txt",
-        "Whisper medium model pre-downloaded and baked into image",
-        "Demucs htdemucs model pre-downloaded and baked into image",
-        "Container runs handler.py as entrypoint",
-        "Image builds successfully: docker build -f runpod/Dockerfile -t yt-translate-worker ."
+        "Endpoint created via mcp__runpod__create-endpoint",
+        "Endpoint name: yt-audio",
+        "Uses yt-translate-audio template",
+        "GPU: RTX 4090 (24GB)",
+        "Min workers: 0 (scale to zero)",
+        "Max workers: 5",
+        "Document endpoint ID"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "Completed in iteration 5. Created runpod/Dockerfile with CUDA 12.4 base, ffmpeg, Python deps, pre-downloaded Whisper medium and Demucs htdemucs models, handler.py entrypoint."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-006",
-      "title": "Create requirements-runpod.txt",
-      "description": "As a developer, I want a dedicated requirements file for the RunPod worker with all ML dependencies.",
+      "title": "Create Chatterbox Serverless Endpoint",
+      "description": "As a developer, I want to create a serverless endpoint for Chatterbox TTS.",
       "acceptanceCriteria": [
-        "runpod/requirements.txt created with all dependencies",
-        "Includes: torch, torchaudio, whisper, demucs, chatterbox-tts, pyannote.audio",
-        "Includes: transformers, accelerate (for Qwen3-32B)",
-        "Includes: runpod SDK, supabase, httpx",
-        "Pinned versions for reproducibility",
-        "Typecheck passes after installing deps"
+        "Endpoint created via mcp__runpod__create-endpoint",
+        "Endpoint name: yt-chatterbox",
+        "Uses yt-translate-chatterbox template",
+        "GPU: RTX 4090 (24GB)",
+        "Min workers: 0",
+        "Max workers: 5",
+        "Document endpoint ID"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": "Completed in iteration 6. Created runpod/requirements.txt with all pinned dependencies. Updated Dockerfile to use dedicated requirements file."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-007",
-      "title": "Create RunPod client in API gateway",
-      "description": "As a developer, I want the Railway API gateway to submit jobs to RunPod and poll for results.",
+      "title": "Test Audio Endpoint",
+      "description": "As a developer, I want to verify the audio endpoint processes a test video correctly.",
       "acceptanceCriteria": [
-        "New runpod_client.py module with async functions",
-        "submit_job(video_url, target_lang) returns job_id",
-        "get_job_status(job_id) returns status dict",
-        "cancel_job(job_id) cancels running job",
-        "Uses RUNPOD_API_KEY and RUNPOD_ENDPOINT_ID env vars",
-        "Proper error handling for API failures",
-        "Typecheck passes"
+        "Submit test job with YouTube video URL",
+        "Job completes without errors",
+        "Response includes: language, segments, vocals_path, background_path",
+        "Segments have speaker IDs from diarization",
+        "Processing time < 3 minutes for 2-minute video"
       ],
       "priority": 7,
-      "passes": true,
-      "notes": "Completed in iteration 7. Created runpod_client.py with async submit_job, get_job_status, cancel_job functions and RunPodError exception."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-008",
-      "title": "Update Railway API to use RunPod",
-      "description": "As a developer, I want the Railway API endpoints to call RunPod instead of Replicate for video processing.",
+      "title": "Test vLLM Endpoint",
+      "description": "As a developer, I want to verify the vLLM endpoint translates text segments correctly.",
       "acceptanceCriteria": [
-        "/translate endpoint updated to call runpod_client.submit_job()",
-        "/status/{job_id} endpoint calls runpod_client.get_job_status()",
-        "Job status mapping: RunPod statuses to existing API response format",
-        "Backwards compatible response format for frontend",
-        "Old Replicate code removed from active endpoints",
-        "Typecheck passes"
+        "Submit test translation request (5 segments, EN→ES)",
+        "Response returns translated text for all segments",
+        "Translations are contextually coherent",
+        "API follows OpenAI chat completion format",
+        "Processing time < 30 seconds for 5 segments"
       ],
       "priority": 8,
-      "passes": true,
-      "notes": "Completed in iteration 8. Created server.py with FastAPI gateway, updated Procfile to use server:app."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-009",
-      "title": "Create docker-compose for local development",
-      "description": "As a developer, I want a docker-compose setup to test the RunPod worker locally with GPU.",
+      "title": "Test Chatterbox Endpoint",
+      "description": "As a developer, I want to verify the Chatterbox endpoint generates speech correctly.",
       "acceptanceCriteria": [
-        "docker-compose.yml created with GPU support",
-        "Worker service uses runpod/Dockerfile",
-        "Environment variables loaded from .env",
-        "Volume mounts for model caching",
-        "docker compose up starts worker successfully",
-        "Can submit test job via curl and receive result"
+        "Submit test job with text + voice sample URL",
+        "Job completes without errors",
+        "Response includes audio file path/URL",
+        "Audio is intelligible and matches voice sample",
+        "Processing time < 60 seconds for 30 seconds of speech"
       ],
       "priority": 9,
-      "passes": true,
-      "notes": "Completed in iteration 9. Created docker-compose.yml with GPU support, Dockerfile reference, env_file, volume mounts for models."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-010",
-      "title": "Add health check and monitoring",
-      "description": "As a developer, I want health checks and basic monitoring in the RunPod worker.",
+      "title": "Document Endpoint Configuration",
+      "description": "As a developer, I want to document all endpoint IDs and configuration for Railway integration.",
       "acceptanceCriteria": [
-        "Handler reports GPU availability on startup",
-        "Handler reports loaded models on startup",
-        "Failed jobs include detailed error traces",
-        "Job duration logged for each completion",
-        "Memory usage logged before/after processing",
-        "Typecheck passes"
+        "Create .env.example with all RunPod endpoint IDs",
+        "Update runpod/README.md with deployment details",
+        "Document cold start times observed",
+        "Document cost per request observed",
+        "List any issues encountered and workarounds"
       ],
       "priority": 10,
-      "passes": true,
-      "notes": "Completed in iteration 10. Added health check functions (GPU, models, memory), startup logging, job duration tracking, detailed error traces."
+      "passes": false,
+      "notes": ""
     }
   ]
 }

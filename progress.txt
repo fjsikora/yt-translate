@@ -247,8 +247,142 @@
 - Import checks for ML packages are fast and don't load models into memory
 - Detailed error traces help debugging failed jobs in RunPod logs
 
-## ALL USER STORIES COMPLETE
+## ALL USER STORIES COMPLETE (Previous PRD)
 
 All 10 user stories have been implemented and pass their acceptance criteria.
 The RunPod deployment migration is complete.
+
+---
+
+# New PRD: runpod-mcp-deployment
+
+## 2026-01-20 - Session Start
+
+Working on new PRD to deploy using RunPod GitHub integration and MCP tools.
+
+## US-002: Create Audio Worker Template - BLOCKED
+
+**Date:** 2026-01-20
+**Status:** BLOCKED - Awaiting permissions
+
+**Blocker:**
+- RunPod MCP tools not authorized (mcp__runpod__list-templates, mcp__runpod__create-template)
+- Cannot create templates programmatically without MCP tool permissions
+- User needs to grant RunPod MCP tool permissions in Claude Code
+
+**Prerequisites verified:**
+- Branch: ralph/runpod-deployment (correct)
+- Dockerfile exists: runpod/audio/Dockerfile
+- Handler exists: runpod/audio/handler.py
+- Requirements exist: runpod/audio/requirements.txt
+- GitHub integration completed (US-001 passed)
+
+**Plan once permissions granted:**
+1. List existing templates to check for duplicates
+2. Create template with:
+   - Name: yt-translate-audio
+   - Image from GitHub: runpod/audio/Dockerfile
+   - Container disk: 50GB
+   - Volume: 20GB at /runpod-volume
+   - Env vars: HUGGINGFACE_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_KEY
+
+---
+
+## 2026-01-20 15:XX - Iteration Attempt (Still Blocked)
+
+**Status:** US-002 still blocked on RunPod MCP permissions
+
+**Attempted:**
+- Called mcp__runpod__list-templates
+- Received: "Claude requested permissions to use mcp__runpod__list-templates, but you haven't granted it yet."
+
+**Verified:**
+- All prerequisite files exist:
+  - runpod/audio/Dockerfile
+  - runpod/audio/handler.py
+  - runpod/audio/requirements.txt
+- Branch correct: ralph/runpod-deployment
+
+**Action Required:**
+User must grant RunPod MCP tool permissions in Claude Code settings/prompt.
+Without these permissions, this iteration cannot proceed.
+
+**Next Story After US-002:** US-003 (Create Chatterbox Worker Template) - also requires RunPod MCP tools
+
+---
+
+## 2026-01-20 ~21:XX - Iteration Attempt #3 (Still Blocked)
+
+**Status:** US-002 still blocked on RunPod MCP permissions
+
+**Attempted:**
+- Called mcp__runpod__list-templates
+- Received: "Claude requested permissions to use mcp__runpod__list-templates, but you haven't granted it yet."
+
+**Verified:**
+- Branch correct: ralph/runpod-deployment
+- All prerequisite files exist:
+  - runpod/audio/Dockerfile
+  - runpod/audio/handler.py
+  - runpod/audio/requirements.txt
+  - runpod/chatterbox/Dockerfile
+  - runpod/chatterbox/handler.py
+  - runpod/chatterbox/requirements.txt
+  - runpod/vllm/README.md
+  - runpod/vllm/client.py
+
+**Blocker:**
+RunPod MCP tools require user permission grant. The tools available but not authorized:
+- mcp__runpod__list-templates
+- mcp__runpod__create-template
+- mcp__runpod__create-endpoint
+- mcp__runpod__list-endpoints
+
+**Action Required:**
+User must grant RunPod MCP tool permissions. When the permission prompt appears, click "Allow" or "Grant" to enable the tools.
+
+---
+
+## 2026-01-20 ~XX:XX - Iteration Attempt #4 (Still Blocked)
+
+**Status:** US-002 still blocked on RunPod MCP permissions
+
+**Attempted:**
+- Called mcp__runpod__list-templates
+- Received: "Claude requested permissions to use mcp__runpod__list-templates, but you haven't granted it yet."
+
+**Blocker:**
+RunPod MCP tools require explicit user permission grant. The tools are available in the system but not yet authorized:
+- mcp__runpod__list-templates
+- mcp__runpod__create-template
+- mcp__runpod__create-endpoint
+- mcp__runpod__list-endpoints
+
+**Action Required:**
+User must grant RunPod MCP tool permissions. When Claude requests permission to use a RunPod tool, click "Allow" or "Grant" in the permission dialog.
+
+---
+
+## US-002: Create Audio Worker Template - COMPLETE
+
+**Date:** 2026-01-20
+**Files changed:**
+- prd.json (updated passes to true)
+
+**Implementation notes:**
+- RunPod MCP tools now authorized and working
+- Created template via mcp__runpod__create-template
+- Template ID: k0iwwtx14x
+- Template name: yt-translate-audio
+- Image: ghcr.io/fsikora/yt-translate/audio:latest
+- Container disk: 50GB
+- Volume: 20GB at /workspace (RunPod default mount path)
+- Environment variables configured: HUGGINGFACE_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_KEY
+- Docker start command: ["python", "runpod/audio/handler.py"]
+
+**Learnings:**
+- RunPod MCP create-template ignores volumeMountPath and uses /workspace (their default)
+- Environment variables must be set via update-template after initial creation
+- isServerless=true is important for serverless templates
+- Template ports default to 8888/http and 22/tcp even for serverless
 
