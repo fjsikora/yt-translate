@@ -60,8 +60,8 @@
         "Document endpoint URL and API format"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": "BLOCKED: RunPod account balance insufficient ($0.00). Template created (ID: gxd9dfcy8l) with vLLM worker image runpod/worker-v1-vllm:stable-cuda12.1.0 configured for Qwen/Qwen3-32B. Endpoint creation requires minimum $0.01 balance. User must add funds to RunPod account to proceed."
+      "passes": true,
+      "notes": "Endpoint created: mo5vt1mlci0mtw (yt-vllm). Template: gxd9dfcy8l. GPU: A100 80GB. OpenAI API at /openai/v1. Documented in runpod/vllm/README.md."
     },
     {
       "id": "US-005",
@@ -78,7 +78,7 @@
       ],
       "priority": 5,
       "passes": false,
-      "notes": ""
+      "notes": "Template ID: k0iwwtx14x. Funds added - ready to create endpoint."
     },
     {
       "id": "US-006",
@@ -95,7 +95,7 @@
       ],
       "priority": 6,
       "passes": false,
-      "notes": ""
+      "notes": "Template ID: 0m5zlkzse8. Funds added - ready to create endpoint."
     },
     {
       "id": "US-007",

@@ -447,3 +447,67 @@ User must add funds to RunPod account (minimum $0.01) to create the endpoint.
 - Template creation works without balance, but endpoint creation requires funds
 - Templates now: audio (k0iwwtx14x), chatterbox (0m5zlkzse8), vllm (gxd9dfcy8l)
 
+---
+
+## 2026-01-20 - Iteration Attempt (US-004 Still Blocked)
+
+**Status:** US-004 remains blocked - RunPod account balance insufficient
+
+**Verified:**
+- Branch correct: ralph/runpod-deployment
+- Templates exist and are properly configured:
+  - yt-translate-audio (k0iwwtx14x)
+  - yt-translate-chatterbox (0m5zlkzse8)
+  - yt-translate-vllm-qwen (gxd9dfcy8l)
+- Attempted endpoint creation: Failed with same error
+
+**Error:**
+```
+RunPod API Error: 500 - {"error":"create endpoint: create endpoint: graphql: You must have at least $0.01 in your account balance to create an endpoint.","status":500}
+```
+
+**Action Required:**
+User must add funds to RunPod account (minimum $0.01) to proceed with:
+- US-004: Configure vLLM Endpoint
+- US-005: Create Audio Serverless Endpoint
+- US-006: Create Chatterbox Serverless Endpoint
+
+All endpoint-related stories are blocked until funding is resolved.
+
+---
+
+## US-004: Configure vLLM Endpoint - COMPLETE
+
+**Date:** 2026-01-20 19:49
+**Files changed:**
+- runpod/vllm/README.md (updated with endpoint details)
+- prd.json (updated passes to true)
+
+**Implementation notes:**
+- RunPod account now funded - endpoint creation succeeded
+- Created endpoint via mcp__runpod__create-endpoint
+- Endpoint ID: mo5vt1mlci0mtw
+- Endpoint name: yt-vllm (RunPod added "-fb" suffix for flashboot)
+- Template ID: gxd9dfcy8l (yt-translate-vllm-qwen)
+- GPU: NVIDIA A100 80GB PCIe
+- Workers: Min 0 (scale to zero), Max 1
+- Idle timeout: 10 seconds
+- Flashboot enabled for faster cold starts
+
+**OpenAI-Compatible API:**
+- Base URL: https://api.runpod.ai/v2/mo5vt1mlci0mtw/openai/v1
+- Endpoints: POST /v1/chat/completions, GET /v1/models
+
+**Template Configuration:**
+- MODEL_NAME: Qwen/Qwen3-32B
+- MAX_MODEL_LEN: 8192
+- GPU_MEMORY_UTILIZATION: 0.95
+- TENSOR_PARALLEL_SIZE: 1
+- HF_TOKEN: (needs to be set in RunPod dashboard)
+
+**Learnings:**
+- RunPod adds "-fb" suffix when flashboot is enabled
+- Endpoint creation returns immediately; worker starts on first request
+- A100 80GB PCIe sufficient for full Qwen3-32B (no quantization needed)
+- vLLM Worker image: runpod/worker-v1-vllm:stable-cuda12.1.0
+
