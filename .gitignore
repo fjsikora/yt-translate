@@ -55,3 +55,6 @@ chatterbox_repo/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Cloned dependencies
+MuseTalk/
