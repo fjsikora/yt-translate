@@ -1,0 +1,7 @@
+# Demucs Audio Separation Worker Dependencies
+# Slim requirements - models downloaded at runtime
+
+self-hosted>=1.7.0
+torch>=2.0.0
+torchaudio>=2.0.0
+demucs>=4.0.0
