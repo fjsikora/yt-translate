@@ -86,13 +86,10 @@ def generate_speech(
     exaggeration: float = 0.5,
 ) -> float:
     """Generate speech for a single segment."""
-    # Load voice sample
-    audio_prompt, sr = torchaudio.load(voice_sample_path)
-
-    # Generate speech
+    # Generate speech using audio_prompt_path (file path, not tensor)
     wav = model.generate(
         text=text,
-        audio_prompt=audio_prompt,
+        audio_prompt_path=voice_sample_path,
         cfg_weight=cfg_weight,
         exaggeration=exaggeration,
     )
