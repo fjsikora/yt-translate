@@ -78,7 +78,7 @@
       ],
       "priority": 5,
       "passes": true,
-      "notes": "Endpoint created: 6ml08xitszksx7. Name: yt-audio -fb. GPU: RTX 4090. Workers: 0-4 (quota limited, vLLM uses 1). Flashboot enabled."
+      "notes": "Endpoint created: 6ml08xitszksx7. Name: yt-audio -fb. GPU: RTX 4090. Workers: 0-3 (reduced from 4 to fit chatterbox). Flashboot enabled."
     },
     {
       "id": "US-006",
@@ -94,8 +94,8 @@
         "Document endpoint ID"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": "Template ID: 0m5zlkzse8. Funds added - ready to create endpoint."
+      "passes": true,
+      "notes": "Endpoint created: fng8yb7yom8qdo. Name: yt-chatterbox -fb. GPU: RTX 4090. Workers: 0-1 (quota limited). Reduced yt-audio max from 4 to 3 to fit quota."
     },
     {
       "id": "US-007",

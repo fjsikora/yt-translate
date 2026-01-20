@@ -540,3 +540,37 @@ All endpoint-related stories are blocked until funding is resolved.
 - vLLM endpoint already uses 1 worker, leaving 4 for audio endpoint
 - Flashboot enabled by default for faster cold starts
 
+---
+
+## US-006: Create Chatterbox Serverless Endpoint - COMPLETE
+
+**Date:** 2026-01-20 19:53
+**Files changed:**
+- prd.json (updated passes to true, updated US-005 notes)
+
+**Implementation notes:**
+- Created endpoint via mcp__runpod__create-endpoint
+- Endpoint ID: fng8yb7yom8qdo
+- Endpoint name: yt-chatterbox -fb (RunPod added "-fb" suffix for flashboot)
+- Template: yt-translate-chatterbox (0m5zlkzse8)
+- GPU: NVIDIA GeForce RTX 4090 (24GB)
+- Workers: Min 0 (scale to zero), Max 1
+- Idle timeout: 10 seconds (default)
+- Flashboot enabled for faster cold starts
+
+**Worker Quota Adjustment:**
+- Account has max 5 workers across all endpoints
+- Existing allocation: vLLM (1) + audio (4) = 5 (full)
+- Reduced audio endpoint from max 4 to max 3 workers
+- Now: vLLM (1) + audio (3) + chatterbox (1) = 5
+
+**API Details:**
+- Endpoint URL: https://api.runpod.ai/v2/fng8yb7yom8qdo/run
+- Status URL: https://api.runpod.ai/v2/fng8yb7yom8qdo/status/{job_id}
+
+**Learnings:**
+- Worker quota is shared across ALL endpoints in the account
+- Must update existing endpoints to reduce max workers before creating new ones
+- mcp__runpod__update-endpoint allows changing workersMax on existing endpoints
+- Final endpoint distribution: vLLM (1), audio (3), chatterbox (1) = 5 total
+
