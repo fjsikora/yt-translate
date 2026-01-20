@@ -97,3 +97,27 @@
 - RunPod SDK: runpod.serverless.start() with handler config, progress_update(job, msg)
 - sys.path.insert needed to import from parent directory in handler.py
 
+## US-005: Create RunPod Dockerfile - COMPLETE
+
+**Date:** 2026-01-20 15:00
+**Files changed:**
+- runpod/Dockerfile (new file)
+
+**Implementation notes:**
+- Base image: nvidia/cuda:12.4.0-runtime-ubuntu22.04 for GPU support
+- System packages: python3.11, ffmpeg, git, wget via apt-get
+- Python dependencies from main requirements.txt + RunPod-specific additions
+- Additional deps: runpod, supabase, transformers, accelerate, bitsandbytes, scipy, stripe
+- Whisper medium model pre-downloaded via `whisper.load_model('medium')`
+- Demucs htdemucs model pre-downloaded via `torch.hub.load()`
+- Entrypoint: CMD ["python", "runpod/handler.py"]
+- Dockerfile validated with `docker build --check` (no warnings)
+
+**Learnings:**
+- nvidia/cuda images require specific version tags (12.4.0-runtime-ubuntu22.04)
+- Pre-downloading models at build time reduces cold start time on RunPod
+- Whisper model caches to ~/.cache/whisper, Demucs to ~/.cache/torch/hub
+- Using --no-cache-dir for pip reduces image size
+- Dockerfile approach: install base requirements.txt then add RunPod-specific deps
+- US-006 will create dedicated runpod/requirements.txt for cleaner dependency management
+
