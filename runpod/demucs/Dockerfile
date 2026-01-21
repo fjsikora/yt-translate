@@ -1,6 +1,6 @@
 # Demucs Audio Separation Worker Dockerfile
-# Slim container - model downloaded at runtime
-# Estimated image size: ~5GB
+# Model pre-downloaded for faster cold starts
+# Estimated image size: ~6GB
 
 FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04
 
@@ -38,6 +38,9 @@ RUN pip install --no-cache-dir \
 # Copy and install requirements
 COPY runpod/demucs/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Pre-download Demucs model for faster cold starts
+RUN python -c "from demucs.pretrained import get_model; get_model('htdemucs')"
 
 # Copy handler
 COPY runpod/demucs/handler.py /app/handler.py

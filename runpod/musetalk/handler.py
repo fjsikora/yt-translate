@@ -2,7 +2,7 @@
 RunPod MuseTalk Lip Sync Worker Handler
 
 Handles lip synchronization using MuseTalk.
-Accepts video URL + audio URL, returns lip-synced video.
+Accepts video URL + audio URL, returns lip-synced video as URL (uploaded to RunPod storage).
 """
 
 import os
@@ -216,11 +216,11 @@ def handler(job: dict) -> dict:
         )
         inference_time = round(time.time() - inference_start, 2)
 
-        # Read output and encode to base64
-        with open(output_path, "rb") as f:
-            output_data = f.read()
-        output_base64 = base64.b64encode(output_data).decode("utf-8")
-        log(f"Output encoded to base64: {len(output_data) / 1e6:.1f} MB")
+        # Upload output video to RunPod storage
+        output_size = os.path.getsize(output_path) / 1e6
+        log(f"Uploading output video ({output_size:.1f} MB) to RunPod storage...")
+        video_url = runpod.serverless.rp_upload.upload(output_path, job_id)
+        log(f"Uploaded video: {video_url[:80]}...")
 
         total_time = round(time.time() - start_time, 2)
         log(f"Job {job_id} completed in {total_time}s")
@@ -231,7 +231,7 @@ def handler(job: dict) -> dict:
 
         return {
             "status": "success",
-            "video_base64": output_base64,
+            "video_url": video_url,
             "metrics": {
                 "inference_seconds": inference_time,
                 "total_seconds": total_time,
