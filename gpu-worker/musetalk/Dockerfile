@@ -1,6 +1,6 @@
 # MuseTalk Lip Sync Worker Dockerfile
 # Complex dependencies: OpenMMLab (mmcv, mmdet, mmpose) + MuseTalk
-# Models downloaded at build time for fast cold starts
+# Models downloaded at BUILD TIME for fast cold starts
 # Estimated image size: ~15-18GB
 
 FROM nvidia/cuda:12.4.0-devel-ubuntu22.04
@@ -83,17 +83,15 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Create model directories
 RUN mkdir -p /app/MuseTalk/models/musetalk \
-    /app/MuseTalk/models/musetalkV15 \
     /app/MuseTalk/models/sd-vae-ft-mse \
     /app/MuseTalk/models/whisper \
     /app/MuseTalk/models/dwpose \
     /app/MuseTalk/models/face-parse-bisent
 
-# Download models at build time for faster cold starts
+# Download models at build time for fast cold starts
 # MuseTalk models from HuggingFace
 RUN python -c "\
-from huggingface_hub import snapshot_download, hf_hub_download; \
-import os; \
+from huggingface_hub import snapshot_download; \
 print('Downloading MuseTalk models...'); \
 snapshot_download('TMElyralab/MuseTalk', local_dir='/app/MuseTalk/models/musetalk', local_dir_use_symlinks=False, allow_patterns=['*.json', '*.bin', '*.pth', '*.pt', '*.safetensors']); \
 print('Downloading SD VAE...'); \
