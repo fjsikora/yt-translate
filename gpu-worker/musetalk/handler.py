@@ -217,10 +217,14 @@ def handler(job: dict) -> dict:
         )
         inference_time = round(time.time() - inference_start, 2)
 
-        # Upload output video to Self-hosted GPU storage
+        # Upload output video to S3-compatible storage
         output_size = os.path.getsize(output_path) / 1e6
         log(f"Uploading output video ({output_size:.1f} MB) to storage...")
-        video_url = rp_upload.upload_image(job_id, output_path)
+        video_url = rp_upload.upload_file_to_bucket(
+            file_name=f"{job_id}_lipsynced.mp4",
+            file_location=output_path,
+            bucket_name="self-hosted-outputs"
+        )
         log(f"Uploaded video: {video_url}")
 
         total_time = round(time.time() - start_time, 2)

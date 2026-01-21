@@ -186,8 +186,16 @@ def handler(job: dict) -> dict:
 
         # Upload to S3-compatible storage and get URLs
         log("Uploading audio files to storage...")
-        vocals_url = rp_upload.upload_image(job_id, vocals_path)
-        background_url = rp_upload.upload_image(job_id, background_path)
+        vocals_url = rp_upload.upload_file_to_bucket(
+            file_name=f"{job_id}_vocals.wav",
+            file_location=vocals_path,
+            bucket_name="self-hosted-outputs"
+        )
+        background_url = rp_upload.upload_file_to_bucket(
+            file_name=f"{job_id}_background.wav",
+            file_location=background_path,
+            bucket_name="self-hosted-outputs"
+        )
         log(f"Uploaded vocals: {vocals_url}")
         log(f"Uploaded background: {background_url}")
 
