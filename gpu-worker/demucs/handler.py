@@ -3,17 +3,15 @@ Self-hosted GPU Demucs Audio Separation Worker Handler
 
 Handles audio source separation using Demucs (htdemucs model).
 Accepts audio URL or base64 audio data.
-Returns vocals and background audio as base64 or upload to storage.
+Returns vocals and background audio as URLs (uploaded to Self-hosted GPU storage).
 """
 
 import os
 import sys
-import json
 import time
 import tempfile
 import traceback
 import base64
-import io
 from pathlib import Path
 from urllib.request import urlretrieve
 
@@ -76,17 +74,16 @@ def download_audio(url: str, output_path: str) -> str:
     return output_path
 
 
-def audio_to_base64(audio_tensor: torch.Tensor, sample_rate: int) -> str:
-    """Convert audio tensor to base64 WAV string."""
-    buffer = io.BytesIO()
-    # Use soundfile instead of torchaudio to avoid torchcodec dependency
+def save_audio_to_file(audio_tensor: torch.Tensor, sample_rate: int, output_path: str) -> str:
+    """Save audio tensor to WAV file."""
     # soundfile expects (samples, channels) so transpose from (channels, samples)
     audio_np = audio_tensor.numpy()
     if audio_np.ndim > 1:
         audio_np = audio_np.T  # (channels, samples) -> (samples, channels)
-    sf.write(buffer, audio_np, sample_rate, format="WAV")
-    buffer.seek(0)
-    return base64.b64encode(buffer.read()).decode("utf-8")
+    sf.write(output_path, audio_np, sample_rate, format="WAV")
+    file_size = os.path.getsize(output_path) / 1e6
+    log(f"Saved audio to {output_path} ({file_size:.1f} MB)")
+    return output_path
 
 
 def run_demucs(audio_path: str) -> dict:
@@ -178,17 +175,36 @@ def handler(job: dict) -> dict:
         result = run_demucs(audio_path)
         separation_time = round(time.time() - separation_start, 2)
 
-        # Convert to base64 for response
-        vocals_base64 = audio_to_base64(result["vocals"], result["sample_rate"])
-        background_base64 = audio_to_base64(result["background"], result["sample_rate"])
+        # Save audio files to temp directory
+        output_dir = tempfile.mkdtemp(prefix=f"demucs_{job_id}_")
+        vocals_path = os.path.join(output_dir, "vocals.wav")
+        background_path = os.path.join(output_dir, "background.wav")
+
+        save_audio_to_file(result["vocals"], result["sample_rate"], vocals_path)
+        save_audio_to_file(result["background"], result["sample_rate"], background_path)
+
+        # Upload to Self-hosted GPU storage and get URLs
+        log("Uploading audio files to Self-hosted GPU storage...")
+        vocals_url = self-hosted.serverless.rp_upload.upload(vocals_path, job_id)
+        background_url = self-hosted.serverless.rp_upload.upload(background_path, job_id)
+        log(f"Uploaded vocals: {vocals_url[:80]}...")
+        log(f"Uploaded background: {background_url[:80]}...")
+
+        # Cleanup temp files
+        try:
+            os.unlink(vocals_path)
+            os.unlink(background_path)
+            os.rmdir(output_dir)
+        except Exception:
+            pass
 
         total_time = round(time.time() - start_time, 2)
         log(f"Job {job_id} completed in {total_time}s")
 
         return {
             "status": "success",
-            "vocals_base64": vocals_base64,
-            "background_base64": background_base64,
+            "vocals_url": vocals_url,
+            "background_url": background_url,
             "sample_rate": result["sample_rate"],
             "metrics": {
                 "separation_seconds": separation_time,
