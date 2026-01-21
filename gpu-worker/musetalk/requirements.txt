@@ -1,0 +1,11 @@
+# Self-hosted GPU MuseTalk Worker Dependencies
+# Note: PyTorch and MuseTalk deps are installed in Dockerfile
+
+# Self-hosted GPU SDK
+self-hosted>=1.7.0
+
+# Config handling
+pyyaml>=6.0
+
+# Model downloads (used at build time)
+huggingface_hub>=0.20.0
