@@ -47,7 +47,9 @@ RUN pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cu121
 
 # Install OpenMMLab packages via mim (avoids version conflicts)
+# Note: chumpy has a broken setup.py, install it separately first
 RUN pip install --no-cache-dir openmim && \
+    pip install --no-cache-dir --no-build-isolation chumpy && \
     mim install mmengine && \
     mim install "mmcv>=2.0.1" && \
     mim install "mmdet>=3.1.0" && \
