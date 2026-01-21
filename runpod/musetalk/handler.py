@@ -18,6 +18,7 @@ from pathlib import Path
 from urllib.request import urlretrieve
 
 import runpod
+from runpod.serverless.utils import rp_upload
 import torch
 
 
@@ -218,9 +219,9 @@ def handler(job: dict) -> dict:
 
         # Upload output video to RunPod storage
         output_size = os.path.getsize(output_path) / 1e6
-        log(f"Uploading output video ({output_size:.1f} MB) to RunPod storage...")
-        video_url = runpod.serverless.rp_upload.upload(output_path, job_id)
-        log(f"Uploaded video: {video_url[:80]}...")
+        log(f"Uploading output video ({output_size:.1f} MB) to storage...")
+        video_url = rp_upload.upload_image(job_id, output_path)
+        log(f"Uploaded video: {video_url}")
 
         total_time = round(time.time() - start_time, 2)
         log(f"Job {job_id} completed in {total_time}s")

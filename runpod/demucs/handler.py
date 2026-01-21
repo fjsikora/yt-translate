@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.request import urlretrieve
 
 import runpod
+from runpod.serverless.utils import rp_upload
 import torch
 import torchaudio
 import soundfile as sf
@@ -183,12 +184,12 @@ def handler(job: dict) -> dict:
         save_audio_to_file(result["vocals"], result["sample_rate"], vocals_path)
         save_audio_to_file(result["background"], result["sample_rate"], background_path)
 
-        # Upload to RunPod storage and get URLs
-        log("Uploading audio files to RunPod storage...")
-        vocals_url = runpod.serverless.rp_upload.upload(vocals_path, job_id)
-        background_url = runpod.serverless.rp_upload.upload(background_path, job_id)
-        log(f"Uploaded vocals: {vocals_url[:80]}...")
-        log(f"Uploaded background: {background_url[:80]}...")
+        # Upload to S3-compatible storage and get URLs
+        log("Uploading audio files to storage...")
+        vocals_url = rp_upload.upload_image(job_id, vocals_path)
+        background_url = rp_upload.upload_image(job_id, background_path)
+        log(f"Uploaded vocals: {vocals_url}")
+        log(f"Uploaded background: {background_url}")
 
         # Cleanup temp files
         try:
