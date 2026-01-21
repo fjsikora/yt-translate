@@ -1,0 +1,11 @@
+# RunPod MuseTalk Worker Dependencies
+# Note: PyTorch and MuseTalk deps are installed in Dockerfile
+
+# RunPod SDK
+runpod>=1.7.0
+
+# Config handling
+pyyaml>=6.0
+
+# Model downloads (used at build time)
+huggingface_hub>=0.20.0
