@@ -346,6 +346,7 @@ def list_translation_jobs_by_user(user_id: str) -> list[dict]:
 PREVIEW_BUCKET = "previews"
 TRANSLATIONS_BUCKET = "translations"
 VOICE_SAMPLES_BUCKET = "voice-samples"
+TEMP_BUCKET = "temp-files"
 
 
 def upload_to_storage(
@@ -552,6 +553,62 @@ def get_voice_sample_signed_url(storage_path: str, expires_in: int = 3600) -> st
     path = parts[1]
 
     return get_signed_url(bucket, path, expires_in)
+
+
+def upload_temp_file(file_path: str, job_id: str = None, expires_in: int = 3600) -> str:
+    """
+    Upload a temporary file to Supabase Storage and return a signed URL.
+
+    Used for passing large audio/video files to RunPod endpoints via URL
+    instead of base64 encoding (which has size limits).
+
+    Args:
+        file_path: Local path to the file to upload
+        job_id: Optional job ID for organizing files. If not provided,
+                uses a timestamp-based ID.
+        expires_in: URL expiration time in seconds (default: 1 hour)
+
+    Returns:
+        Signed URL for accessing the uploaded file
+
+    Raises:
+        Exception: If upload fails
+    """
+    import uuid
+    from pathlib import Path
+
+    # Generate job_id if not provided
+    if job_id is None:
+        job_id = str(uuid.uuid4())
+
+    # Determine content type from extension
+    file_ext = Path(file_path).suffix.lower()
+    content_types = {
+        ".wav": "audio/wav",
+        ".mp3": "audio/mpeg",
+        ".mp4": "video/mp4",
+        ".webm": "video/webm",
+        ".ogg": "audio/ogg",
+        ".flac": "audio/flac",
+    }
+    content_type = content_types.get(file_ext, "application/octet-stream")
+
+    # Get filename from path
+    filename = Path(file_path).name
+
+    # Upload to temp bucket
+    storage_path = upload_to_storage(
+        bucket=TEMP_BUCKET,
+        job_id=job_id,
+        file_path=file_path,
+        filename=filename,
+        content_type=content_type
+    )
+
+    # Get signed URL
+    # storage_path is "temp-files/{job_id}/{filename}", we need just "{job_id}/{filename}"
+    path_without_bucket = storage_path.split("/", 1)[1]
+    return get_signed_url(TEMP_BUCKET, path_without_bucket, expires_in)
 
 
 # --- Authentication Operations ---
