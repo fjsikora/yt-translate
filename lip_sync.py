@@ -85,10 +85,12 @@ def stretch_video(
 
     # Use setpts filter to stretch video
     # Drop audio since we're replacing it with translated audio anyway
+    # -r 30 forces re-encoding at correct framerate (otherwise video freezes on last frame)
     cmd = [
         "ffmpeg", "-y",
         "-i", str(input_path),
         "-filter:v", f"setpts={stretch_factor}*PTS",
+        "-r", "30",
         "-an",  # No audio
         str(output_path)
     ]
