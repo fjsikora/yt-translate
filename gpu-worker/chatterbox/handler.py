@@ -93,7 +93,7 @@ def run_tts(
     audio = model.generate(
         text=text,
         audio_prompt_path=voice_sample_path,
-        target_lang=language,
+        language_id=language,
         cfg_weight=cfg_weight,
         exaggeration=exaggeration,
     )
