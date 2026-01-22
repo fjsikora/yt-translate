@@ -254,9 +254,11 @@ def run_musetalk(
         raise RuntimeError(f"MuseTalk failed with code {result.returncode}:\n{error_msg[-2000:]}")
 
     # Find output file (search recursively, exclude input file)
+    # Note: MuseTalk names output like "input_video_input_audio.mp4" so we
+    # only exclude the exact input filename, not files containing "input_video"
     output_files = [
         f for f in Path(output_dir).glob("**/*.mp4")
-        if "input_video" not in f.name
+        if f.name != "input_video.mp4"
     ]
 
     if not output_files:
