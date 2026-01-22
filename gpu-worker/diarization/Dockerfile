@@ -44,14 +44,8 @@ RUN pip install --no-cache-dir \
 COPY self-hosted/diarization/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Pre-download pyannote model for faster cold starts
-# Note: Requires HF_TOKEN with access to pyannote models
-RUN python -c "\
-from pyannote.audio import Pipeline; \
-import os; \
-token = os.environ.get('HF_TOKEN', ''); \
-if token: Pipeline.from_pretrained('pyannote/speaker-diarization-3.1', use_auth_token=token); \
-else: print('Warning: HF_TOKEN not set, model will be downloaded at runtime')"
+# Model downloaded at runtime (first request)
+# Requires HF_TOKEN in environment for pyannote model access
 
 # Copy handler
 COPY self-hosted/diarization/handler.py /app/handler.py
