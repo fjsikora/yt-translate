@@ -103,6 +103,9 @@ snapshot_download('yzd-v/DWPose', local_dir='/app/MuseTalk/models/dwpose', local
 print('Model downloads complete!'); \
 "
 
+# Create symlink for MuseTalk's expected path (expects 'sd-vae' not 'sd-vae-ft-mse')
+RUN ln -s /app/MuseTalk/models/sd-vae-ft-mse /app/MuseTalk/models/sd-vae
+
 # Download face-parse-bisent models
 RUN wget -q https://download.pytorch.org/models/resnet18-5c106cde.pth \
     -O /app/MuseTalk/models/face-parse-bisent/resnet18-5c106cde.pth
