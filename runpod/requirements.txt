@@ -5,9 +5,9 @@
 # =============================================================================
 # Core ML Frameworks
 # =============================================================================
-torch==2.5.1
-torchaudio==2.5.1
-numpy>=1.26.0,<2.0.0
+torch==2.6.0
+torchaudio==2.6.0
+# numpy version resolved by pip (chatterbox-tts requires <1.26.0)
 
 # =============================================================================
 # Speech-to-Text (Whisper)
@@ -32,7 +32,7 @@ chatterbox-tts==0.1.6
 # =============================================================================
 # LLM Translation (Qwen3-32B)
 # =============================================================================
-transformers==4.47.1
+transformers==4.46.3
 accelerate==1.2.1
 bitsandbytes==0.45.0
 
@@ -67,10 +67,10 @@ psutil==5.9.8  # Memory monitoring for health checks
 
 # =============================================================================
 # Notes:
-# - torch 2.5.1 is stable and compatible with CUDA 12.4
+# - torch 2.6.0 required by chatterbox-tts, compatible with CUDA 12.4
 # - torchaudio version must match torch version
-# - numpy <2.0 for compatibility with older packages
-# - transformers 4.47.1 supports Qwen3 models
+# - numpy version auto-resolved (chatterbox-tts requires <1.26.0)
+# - transformers 4.46.3 required by chatterbox-tts (supports Qwen3)
 # - bitsandbytes 0.45.0 supports 4-bit quantization on Linux
 # - pyannote.audio 3.3.2 is the last 3.x release (4.x has breaking changes)
 # - supabase 2.11.0 is stable; newer versions have compatibility issues

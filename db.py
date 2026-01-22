@@ -383,11 +383,11 @@ def upload_to_storage(
     with open(file_path, "rb") as f:
         file_content = f.read()
 
-    # Upload to Supabase Storage
+    # Upload to Supabase Storage (upsert to overwrite existing files)
     client.storage.from_(bucket).upload(
         path=storage_path,
         file=file_content,
-        file_options={"content-type": content_type}
+        file_options={"content-type": content_type, "upsert": "true"}
     )
 
     # Return the full storage path

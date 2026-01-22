@@ -393,6 +393,27 @@
             text-shadow: 0 0 20px var(--phosphor-green-glow);
         }
 
+        .progress-status {
+            text-align: center;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.75rem;
+            color: var(--phosphor-green);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-top: 0.5rem;
+            opacity: 0.8;
+            text-shadow: 0 0 10px var(--phosphor-green-glow);
+        }
+
+        .progress-status.queued {
+            animation: pulse-queued 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse-queued {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
         /* Output / Download Section */
         .output-panel {
             display: none;
@@ -1967,6 +1988,7 @@
                         </svg>
                     </div>
                     <div class="progress-text" id="progress-text">0%</div>
+                    <div class="progress-status" id="progress-status">Initializing...</div>
                 </div>
 
                 <div class="stages" id="stages">
@@ -2274,6 +2296,7 @@
         let selectedLanguage = null;
         let currentJobId = null;
         let currentPreviewId = null;
+        let previewCompleted = false;  // Guard to prevent multiple showPreviewComplete calls
         let pollInterval = null;
         let currentVideoInfo = null;
         let sessionId = generateSessionId();
@@ -2372,9 +2395,29 @@
         // Stage order for progress tracking (simplified UI stages)
         const STAGE_ORDER = ['download', 'transcribe', 'translate', 'upload', 'done'];
 
+        // Human-readable labels for each backend stage
+        const STAGE_LABELS = {
+            'queued': 'Queued for processing...',
+            'pending': 'Initializing...',
+            'initializing': 'Initializing...',
+            'download': 'Downloading video...',
+            'separate': 'Separating audio...',
+            'diarize': 'Analyzing speakers...',
+            'transcribe': 'Transcribing speech...',
+            'translate': 'Translating text...',
+            'synthesize': 'Generating speech...',
+            'mix': 'Mixing audio...',
+            'subtitles': 'Creating subtitles...',
+            'merge': 'Merging video...',
+            'upload': 'Finalizing...',
+            'uploading': 'Uploading...',
+            'done': 'Complete!'
+        };
+
         // Map backend stages to simplified UI stages
         function mapBackendStageToUI(backendStage) {
             const stageMapping = {
+                'queued': 'download',
                 'pending': 'download',
                 'initializing': 'download',
                 'download': 'download',
@@ -2616,10 +2659,11 @@
 
                 const data = await response.json();
                 currentPreviewId = data.preview_id;
+                previewCompleted = false;  // Reset guard for new preview
 
                 // Show progress panel and start polling
+                // Keep "Starting..." state until first poll confirms processing has begun
                 showProgress();
-                updateProgress(0, 'pending');
                 startPreviewPolling();
             } catch (error) {
                 showError(error.message);
@@ -2659,6 +2703,10 @@
                     // Update progress display
                     updateProgress(data.progress || 0, data.stage || 'pending');
 
+                    // Clear "Starting..." state on first successful poll
+                    // The progress panel now shows the actual status (Queued/Initializing/etc.)
+                    setPreviewStartingState(false);
+
                     if (data.status === 'completed') {
                         stopPolling();
                         showPreviewComplete(data);
@@ -2671,11 +2719,15 @@
                     console.error('Polling error:', error);
                     // Don't stop polling on transient errors, just log them
                 }
-            }, 2000);
+            }, 1000);  // Poll every 1 second for more responsive UI
         }
 
         // Show preview complete state with video player
         function showPreviewComplete(data) {
+            // Guard against multiple calls (prevents flickering from repeated video loads)
+            if (previewCompleted) return;
+            previewCompleted = true;
+
             // Mark all stages complete
             updateProgress(100, 'done');
 
@@ -3040,6 +3092,7 @@
             previewPlayerPanel.classList.remove('visible');
             previewVideo.pause();
             previewVideo.querySelector('source').src = '';
+            previewCompleted = false;  // Reset for next preview
         }
 
         // Poll for status (legacy - kept for full translation jobs)
@@ -3081,6 +3134,14 @@
 
             // Update percentage text
             progressText.textContent = `${percent}%`;
+
+            // Update status text with human-readable label for actual backend stage
+            const progressStatus = document.getElementById('progress-status');
+            if (progressStatus) {
+                progressStatus.textContent = STAGE_LABELS[stage] || stage;
+                // Add pulsing effect when queued/pending (waiting for processing to start)
+                progressStatus.classList.toggle('queued', stage === 'queued' || stage === 'pending');
+            }
 
             // Update needle rotation (-60deg = 0%, 60deg = 100%)
             const rotation = -60 + (percent / 100) * 120;
