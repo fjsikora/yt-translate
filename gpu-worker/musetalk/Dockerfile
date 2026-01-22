@@ -1,7 +1,7 @@
 # MuseTalk Lip Sync Worker Dockerfile
 # Complex dependencies: OpenMMLab (mmcv, mmdet, mmpose) + MuseTalk
-# Models downloaded at BUILD TIME for fast cold starts
-# Estimated image size: ~15-18GB
+# Models downloaded at RUNTIME (first request) for smaller image
+# Estimated image size: ~5-8GB (models add ~10GB on first run)
 
 FROM nvidia/cuda:12.4.0-devel-ubuntu22.04
 
@@ -88,35 +88,8 @@ RUN mkdir -p /app/MuseTalk/models/musetalk \
     /app/MuseTalk/models/dwpose \
     /app/MuseTalk/models/face-parse-bisent
 
-# Download models at build time for fast cold starts
-# MuseTalk models from HuggingFace
-RUN python -c "\
-from huggingface_hub import snapshot_download; \
-print('Downloading MuseTalk models...'); \
-snapshot_download('TMElyralab/MuseTalk', local_dir='/app/MuseTalk/models', local_dir_use_symlinks=False, allow_patterns=['*.json', '*.bin', '*.pth', '*.pt', '*.safetensors']); \
-print('Downloading SD VAE...'); \
-snapshot_download('stabilityai/sd-vae-ft-mse', local_dir='/app/MuseTalk/models/sd-vae-ft-mse', local_dir_use_symlinks=False); \
-print('Downloading Whisper...'); \
-snapshot_download('openai/whisper-tiny', local_dir='/app/MuseTalk/models/whisper', local_dir_use_symlinks=False); \
-print('Downloading DWPose...'); \
-snapshot_download('yzd-v/DWPose', local_dir='/app/MuseTalk/models/dwpose', local_dir_use_symlinks=False); \
-print('Model downloads complete!'); \
-"
-
-# Create symlink for MuseTalk's expected path (expects 'sd-vae' not 'sd-vae-ft-mse')
-RUN ln -s /app/MuseTalk/models/sd-vae-ft-mse /app/MuseTalk/models/sd-vae
-
-# Create symlink for config.json (inference.py expects config.json but HF has musetalk.json)
-RUN ln -sf /app/MuseTalk/models/musetalk/musetalk.json /app/MuseTalk/models/musetalk/config.json
-
-# Download face-parse-bisent models
-RUN wget -q https://download.pytorch.org/models/resnet18-5c106cde.pth \
-    -O /app/MuseTalk/models/face-parse-bisent/resnet18-5c106cde.pth
-
-# Download 79999_iter.pth from Google Drive using gdown
-RUN gdown --id 154JgKpzCPW82qINcVieuPH3fZ2e0P812 \
-    -O /app/MuseTalk/models/face-parse-bisent/79999_iter.pth || \
-    echo "Warning: gdown failed, model may need manual download"
+# Models downloaded at runtime (first request) for smaller image size
+# See handler.py ensure_models_downloaded() function
 
 # Copy handler
 COPY self-hosted/musetalk/handler.py /app/handler.py
