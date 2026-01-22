@@ -8,6 +8,7 @@ conda environment for dependency isolation.
 
 import subprocess
 import os
+import yaml
 from pathlib import Path
 from typing import Optional
 
@@ -17,12 +18,97 @@ MUSETALK_DIR = Path(__file__).parent / "MuseTalk"
 MUSETALK_PYTHON = MUSETALK_DIR / ".venv" / "bin" / "python"
 
 
+def get_media_duration(file_path: Path) -> float:
+    """
+    Get duration of a video or audio file using ffprobe.
+
+    Args:
+        file_path: Path to media file
+
+    Returns:
+        Duration in seconds
+    """
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(file_path)
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return float(result.stdout.strip())
+
+
+def stretch_video(
+    input_path: Path,
+    output_path: Path,
+    target_duration: float,
+    original_duration: Optional[float] = None,
+) -> Path:
+    """
+    Stretch video to match target duration using ffmpeg setpts filter.
+
+    This is useful when translated audio is longer than the original video.
+    The video is slowed down proportionally to match the audio length.
+
+    Args:
+        input_path: Path to input video
+        output_path: Path for stretched output video
+        target_duration: Desired duration in seconds
+        original_duration: Original video duration (will be detected if not provided)
+
+    Returns:
+        Path to the stretched video
+    """
+    input_path = Path(input_path)
+    output_path = Path(output_path)
+
+    if not input_path.exists():
+        raise FileNotFoundError(f"Video file not found: {input_path}")
+
+    # Get original duration if not provided
+    if original_duration is None:
+        original_duration = get_media_duration(input_path)
+
+    stretch_factor = target_duration / original_duration
+
+    print(f"Stretching video...")
+    print(f"  Original duration: {original_duration:.2f}s")
+    print(f"  Target duration: {target_duration:.2f}s")
+    print(f"  Stretch factor: {stretch_factor:.3f}x")
+
+    # Ensure output directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Use setpts filter to stretch video
+    # Drop audio since we're replacing it with translated audio anyway
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(input_path),
+        "-filter:v", f"setpts={stretch_factor}*PTS",
+        "-an",  # No audio
+        str(output_path)
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg stretch failed: {result.stderr}")
+
+    print(f"  Output: {output_path}")
+    return output_path
+
+
 def apply_lip_sync(
     video_path: Path,
     audio_path: Path,
     output_path: Path,
     use_float16: bool = True,
     bbox_shift: int = 0,
+    gpu_id: int = 0,
 ) -> Path:
     """
     Apply MuseTalk lip sync to make video match audio.
@@ -33,6 +119,7 @@ def apply_lip_sync(
         output_path: Path for output lip-synced video
         use_float16: Use FP16 for reduced VRAM (default True)
         bbox_shift: Adjust face bounding box position (default 0)
+        gpu_id: GPU device ID to use (default 0)
 
     Returns:
         Path to the output lip-synced video
@@ -58,33 +145,51 @@ def apply_lip_sync(
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Create temporary inference config file (MuseTalk reads paths from YAML, not CLI args)
+    config_path = output_path.parent / "inference_config.yaml"
+    config_data = {
+        "task_0": {
+            "video_path": str(video_path.absolute()),
+            "audio_path": str(audio_path.absolute()),
+        }
+    }
+    if bbox_shift != 0:
+        config_data["task_0"]["bbox_shift"] = bbox_shift
+
+    with open(config_path, "w") as f:
+        yaml.dump(config_data, f)
+
     # Build MuseTalk inference command using local venv
     cmd = [
         str(MUSETALK_PYTHON),
         "-m", "scripts.inference",
-        "--video_path", str(video_path.absolute()),
-        "--audio_path", str(audio_path.absolute()),
+        "--inference_config", str(config_path),
         "--result_dir", str(output_path.parent.absolute()),
+        "--gpu_id", str(gpu_id),
+        "--unet_config", str(MUSETALK_DIR / "models/musetalk/musetalk.json"),
     ]
 
     if use_float16:
         cmd.append("--use_float16")
 
-    if bbox_shift != 0:
-        cmd.extend(["--bbox_shift", str(bbox_shift)])
-
     print(f"Running MuseTalk...")
     print(f"  Video: {video_path}")
     print(f"  Audio: {audio_path}")
     print(f"  Output dir: {output_path.parent}")
+    print(f"  GPU: {gpu_id}")
 
     try:
+        # Clean environment - remove Jupyter's matplotlib backend setting
+        env = os.environ.copy()
+        env.pop("MPLBACKEND", None)
+
         result = subprocess.run(
             cmd,
             cwd=str(MUSETALK_DIR),
             capture_output=True,
             text=True,
             timeout=1800,  # 30 minute timeout
+            env=env,
         )
 
         if result.returncode != 0:
