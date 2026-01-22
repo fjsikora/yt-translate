@@ -243,12 +243,19 @@ def run_musetalk(
         error_msg = result.stderr or result.stdout or "Unknown error"
         raise RuntimeError(f"MuseTalk failed with code {result.returncode}:\n{error_msg[-2000:]}")
 
-    # Find output file
-    output_files = list(Path(output_dir).glob("*.mp4"))
-    if not output_files:
-        raise RuntimeError(f"No output video found in {output_dir}")
+    # Find output file (search recursively, exclude input file)
+    output_files = [
+        f for f in Path(output_dir).glob("**/*.mp4")
+        if "input_video" not in f.name
+    ]
 
-    # Return most recent mp4
+    if not output_files:
+        # Log directory contents for debugging
+        all_files = list(Path(output_dir).rglob("*"))
+        log(f"Directory contents: {[str(f) for f in all_files[:20]]}")
+        raise RuntimeError(f"No output video found in {output_dir} (searched recursively)")
+
+    # Return most recent mp4 (excluding input)
     latest_output = max(output_files, key=lambda p: p.stat().st_mtime)
     output_size = latest_output.stat().st_size / 1e6
     log(f"Output video: {latest_output} ({output_size:.1f} MB)")
