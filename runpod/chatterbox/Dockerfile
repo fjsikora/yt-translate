@@ -40,8 +40,8 @@ RUN pip install --no-cache-dir \
 COPY runpod/chatterbox/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Pre-download Chatterbox model for faster cold starts
-RUN python -c "from chatterbox.mtl_tts import ChatterboxMultilingualTTS; ChatterboxMultilingualTTS.from_pretrained(device='cpu')"
+# Model downloaded at runtime (first request)
+# Chatterbox downloads from HuggingFace Hub automatically
 
 # Copy handler
 COPY runpod/chatterbox/handler.py /app/handler.py

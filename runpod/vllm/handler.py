@@ -1,17 +1,16 @@
 """
-RunPod vLLM Worker Handler
+RunPod llama.cpp Worker Handler
 
-Handles LLM inference using vLLM for Qwen3-32B.
+Handles LLM inference using llama-cpp-python for GGUF models.
 Provides OpenAI-compatible chat completions API.
 """
 
 import os
-import sys
 import time
 import traceback
+from pathlib import Path
 
 import runpod
-import torch
 
 
 def log(msg: str) -> None:
@@ -21,30 +20,34 @@ def log(msg: str) -> None:
 
 def log_startup_info() -> None:
     """Log startup health check information."""
-    log("=== vLLM Worker Starting ===")
-    log(f"GPU Available: {torch.cuda.is_available()}")
-    if torch.cuda.is_available():
-        log(f"GPU Count: {torch.cuda.device_count()}")
-        for i in range(torch.cuda.device_count()):
-            log(f"GPU {i}: {torch.cuda.get_device_name(i)}")
-            mem_total = torch.cuda.get_device_properties(i).total_memory / 1e9
-            log(f"  Memory: {mem_total:.1f} GB")
-        log(f"CUDA Version: {torch.version.cuda}")
+    log("=== llama.cpp Worker Starting ===")
 
-    # Check vLLM
+    # Check for CUDA
     try:
-        import vllm
-        log(f"vLLM version: {vllm.__version__}")
+        import torch
+        log(f"CUDA Available: {torch.cuda.is_available()}")
+        if torch.cuda.is_available():
+            log(f"GPU Count: {torch.cuda.device_count()}")
+            for i in range(torch.cuda.device_count()):
+                log(f"GPU {i}: {torch.cuda.get_device_name(i)}")
+    except ImportError:
+        log("PyTorch not installed (not required for llama.cpp)")
+
+    # Check llama-cpp-python
+    try:
+        import llama_cpp
+        log(f"llama-cpp-python version: {llama_cpp.__version__}")
     except ImportError as e:
-        log(f"ERROR: vllm not installed: {e}")
+        log(f"ERROR: llama-cpp-python not installed: {e}")
 
     # Log configuration
-    model_name = os.environ.get("MODEL_NAME", "Qwen/Qwen3-32B")
-    max_model_len = os.environ.get("MAX_MODEL_LEN", "8192")
-    gpu_utilization = os.environ.get("GPU_MEMORY_UTILIZATION", "0.95")
-    log(f"Model: {model_name}")
-    log(f"Max model length: {max_model_len}")
-    log(f"GPU memory utilization: {gpu_utilization}")
+    model_repo = os.environ.get("MODEL_REPO", "unsloth/Qwen3-32B-GGUF")
+    model_file = os.environ.get("MODEL_FILE", "Qwen3-32B-Q4_1.gguf")
+    model_path = os.environ.get("MODEL_PATH", f"/models/{model_file}")
+    log(f"Model repo: {model_repo}")
+    log(f"Model file: {model_file}")
+    log(f"Model path: {model_path}")
+    log(f"Model exists: {Path(model_path).exists()}")
 
     log("=== Startup Complete ===")
 
@@ -53,101 +56,60 @@ def log_startup_info() -> None:
 _llm = None
 
 
+def download_model() -> str:
+    """Download GGUF model from HuggingFace if not present."""
+    from huggingface_hub import hf_hub_download
+
+    model_repo = os.environ.get("MODEL_REPO", "unsloth/Qwen3-32B-GGUF")
+    model_file = os.environ.get("MODEL_FILE", "Qwen3-32B-Q4_1.gguf")
+    model_path = os.environ.get("MODEL_PATH", f"/models/{model_file}")
+
+    if Path(model_path).exists():
+        log(f"Model already exists: {model_path}")
+        return model_path
+
+    log(f"Downloading {model_repo}/{model_file}...")
+    log("(This may take several minutes for large models)")
+
+    download_start = time.time()
+    local_path = hf_hub_download(
+        repo_id=model_repo,
+        filename=model_file,
+        local_dir="/models",
+    )
+    download_time = time.time() - download_start
+    log(f"Model downloaded in {download_time:.1f}s: {local_path}")
+
+    return model_path
+
+
 def get_llm():
-    """Get or create the vLLM engine."""
+    """Get or create the llama.cpp model."""
     global _llm
 
     if _llm is None:
-        from vllm import LLM
+        from llama_cpp import Llama
 
-        model_name = os.environ.get("MODEL_NAME", "Qwen/Qwen3-32B")
-        max_model_len = int(os.environ.get("MAX_MODEL_LEN", "8192"))
-        gpu_utilization = float(os.environ.get("GPU_MEMORY_UTILIZATION", "0.95"))
-        tensor_parallel = int(os.environ.get("TENSOR_PARALLEL_SIZE", "1"))
-        hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+        model_path = download_model()
+        n_ctx = int(os.environ.get("N_CTX", "8192"))
+        n_gpu_layers = int(os.environ.get("N_GPU_LAYERS", "-1"))  # -1 = all layers
 
-        log(f"Loading model {model_name}...")
-        log("(This may take several minutes on first load)")
+        log(f"Loading model from {model_path}...")
+        log(f"Context length: {n_ctx}")
+        log(f"GPU layers: {n_gpu_layers}")
+        log("(This may take a minute...)")
 
-        _llm = LLM(
-            model=model_name,
-            max_model_len=max_model_len,
-            gpu_memory_utilization=gpu_utilization,
-            tensor_parallel_size=tensor_parallel,
-            trust_remote_code=True,
-            dtype="auto",
+        load_start = time.time()
+        _llm = Llama(
+            model_path=model_path,
+            n_gpu_layers=n_gpu_layers,
+            n_ctx=n_ctx,
+            verbose=False,
         )
-
-        log("Model loaded successfully")
+        load_time = time.time() - load_start
+        log(f"Model loaded successfully in {load_time:.1f}s")
 
     return _llm
-
-
-def format_messages(messages: list) -> str:
-    """Format messages for chat completion."""
-    # Simple chat template for Qwen3
-    formatted = ""
-    for msg in messages:
-        role = msg.get("role", "user")
-        content = msg.get("content", "")
-        if role == "system":
-            formatted += f"<|im_start|>system\n{content}<|im_end|>\n"
-        elif role == "user":
-            formatted += f"<|im_start|>user\n{content}<|im_end|>\n"
-        elif role == "assistant":
-            formatted += f"<|im_start|>assistant\n{content}<|im_end|>\n"
-    formatted += "<|im_start|>assistant\n"
-    return formatted
-
-
-def run_inference(
-    messages: list,
-    max_tokens: int = 1024,
-    temperature: float = 0.7,
-    top_p: float = 0.9,
-) -> dict:
-    """Run LLM inference."""
-    from vllm import SamplingParams
-
-    llm = get_llm()
-
-    # Format prompt
-    prompt = format_messages(messages)
-
-    log(f"Running inference (max_tokens={max_tokens}, temp={temperature})...")
-    inference_start = time.time()
-
-    # Create sampling params
-    sampling_params = SamplingParams(
-        max_tokens=max_tokens,
-        temperature=temperature,
-        top_p=top_p,
-        stop=["<|im_end|>", "<|endoftext|>"],
-    )
-
-    # Generate
-    outputs = llm.generate([prompt], sampling_params)
-
-    inference_time = time.time() - inference_start
-    log(f"Inference completed in {inference_time:.1f}s")
-
-    # Extract response
-    output = outputs[0]
-    response_text = output.outputs[0].text.strip()
-
-    # Calculate token counts
-    prompt_tokens = len(output.prompt_token_ids)
-    completion_tokens = len(output.outputs[0].token_ids)
-
-    return {
-        "response": response_text,
-        "usage": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens,
-        },
-        "inference_time": inference_time,
-    }
 
 
 def validate_input(job_input: dict) -> None:
@@ -161,7 +123,7 @@ def validate_input(job_input: dict) -> None:
 
 
 def handler(job: dict) -> dict:
-    """Main handler for vLLM jobs."""
+    """Main handler for llama.cpp jobs."""
     job_id = job.get("id", "unknown")
     job_input = job.get("input", {})
     start_time = time.time()
@@ -178,27 +140,40 @@ def handler(job: dict) -> dict:
         temperature = job_input.get("temperature", 0.7)
         top_p = job_input.get("top_p", 0.9)
 
-        # Run inference
-        result = run_inference(
+        # Get model
+        llm = get_llm()
+
+        log(f"Running inference (max_tokens={max_tokens}, temp={temperature})...")
+        inference_start = time.time()
+
+        # Generate response
+        response = llm.create_chat_completion(
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
         )
 
+        inference_time = time.time() - inference_start
+        log(f"Inference completed in {inference_time:.1f}s")
+
+        # Extract response text
+        response_text = response["choices"][0]["message"]["content"]
+        usage = response.get("usage", {})
+
         total_time = round(time.time() - start_time, 2)
         log(f"Job {job_id} completed in {total_time}s")
 
-        # Clean up GPU memory
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
         return {
             "status": "success",
-            "response": result["response"],
-            "usage": result["usage"],
+            "response": response_text,
+            "usage": {
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+            },
             "metrics": {
-                "inference_seconds": round(result["inference_time"], 2),
+                "inference_seconds": round(inference_time, 2),
                 "total_seconds": total_time,
             },
         }
