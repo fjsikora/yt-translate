@@ -60,6 +60,107 @@ def log_startup_info() -> None:
     log("=== Startup Complete ===")
 
 
+# Global flag for model download status
+_models_ready = False
+
+
+def ensure_models_downloaded() -> None:
+    """Download models on first request if not present."""
+    global _models_ready
+    if _models_ready:
+        return
+
+    from huggingface_hub import snapshot_download
+    import urllib.request
+
+    models_dir = Path("/app/MuseTalk/models")
+    musetalk_config = models_dir / "musetalk" / "musetalk.json"
+
+    # Check if already downloaded
+    if musetalk_config.exists():
+        log("Models already present, skipping download")
+        _models_ready = True
+        return
+
+    log("Downloading models (first request, this may take 2-3 minutes)...")
+
+    # Ensure directories exist
+    for subdir in ["musetalk", "sd-vae-ft-mse", "whisper", "dwpose", "face-parse-bisent"]:
+        (models_dir / subdir).mkdir(parents=True, exist_ok=True)
+
+    # MuseTalk models from HuggingFace
+    log("  Downloading MuseTalk models...")
+    snapshot_download(
+        "TMElyralab/MuseTalk",
+        local_dir=str(models_dir),
+        local_dir_use_symlinks=False,
+        allow_patterns=["*.json", "*.bin", "*.pth", "*.pt", "*.safetensors"]
+    )
+
+    # SD VAE
+    log("  Downloading SD VAE...")
+    snapshot_download(
+        "stabilityai/sd-vae-ft-mse",
+        local_dir=str(models_dir / "sd-vae-ft-mse"),
+        local_dir_use_symlinks=False
+    )
+
+    # Whisper tiny
+    log("  Downloading Whisper...")
+    snapshot_download(
+        "openai/whisper-tiny",
+        local_dir=str(models_dir / "whisper"),
+        local_dir_use_symlinks=False
+    )
+
+    # DWPose
+    log("  Downloading DWPose...")
+    snapshot_download(
+        "yzd-v/DWPose",
+        local_dir=str(models_dir / "dwpose"),
+        local_dir_use_symlinks=False
+    )
+
+    # Face parsing resnet18
+    face_parse_dir = models_dir / "face-parse-bisent"
+    resnet_path = face_parse_dir / "resnet18-5c106cde.pth"
+    if not resnet_path.exists():
+        log("  Downloading resnet18...")
+        urllib.request.urlretrieve(
+            "https://download.pytorch.org/models/resnet18-5c106cde.pth",
+            str(resnet_path)
+        )
+
+    # Face parsing model (79999_iter.pth) via gdown
+    iter_path = face_parse_dir / "79999_iter.pth"
+    if not iter_path.exists():
+        log("  Downloading face-parse model...")
+        try:
+            import gdown
+            gdown.download(id="154JgKpzCPW82qINcVieuPH3fZ2e0P812", output=str(iter_path), quiet=False)
+        except Exception as e:
+            log(f"  Warning: gdown failed ({e}), trying direct download...")
+            # Fallback: try direct Google Drive URL
+            urllib.request.urlretrieve(
+                "https://drive.google.com/uc?export=download&id=154JgKpzCPW82qINcVieuPH3fZ2e0P812",
+                str(iter_path)
+            )
+
+    # Create symlinks
+    sd_vae_link = models_dir / "sd-vae"
+    if not sd_vae_link.exists():
+        log("  Creating sd-vae symlink...")
+        sd_vae_link.symlink_to(models_dir / "sd-vae-ft-mse")
+
+    config_link = models_dir / "musetalk" / "config.json"
+    if not config_link.exists():
+        log("  Creating config.json symlink...")
+        config_link.symlink_to(models_dir / "musetalk" / "musetalk.json")
+
+    _models_ready = True
+    log("Model download complete!")
+
+
 def download_file(url: str, output_path: str) -> str:
     """Download file from URL."""
     log(f"Downloading from {url[:80]}...")
@@ -175,6 +276,9 @@ def handler(job: dict) -> dict:
         log(f"Input keys: {list(job_input.keys())}")
 
         validate_input(job_input)
+
+        # Ensure models are downloaded (first request only)
+        ensure_models_downloaded()
 
         # Create work directory
         work_dir = tempfile.mkdtemp(prefix=f"musetalk_{job_id}_")
