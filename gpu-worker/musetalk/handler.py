@@ -74,13 +74,23 @@ def ensure_models_downloaded() -> None:
     import urllib.request
 
     models_dir = Path("/app/MuseTalk/models")
-    musetalk_config = models_dir / "musetalk" / "musetalk.json"
 
-    # Check if already downloaded
-    if musetalk_config.exists():
-        log("Models already present, skipping download")
+    # Check for actual model weight files, not just config
+    required_files = [
+        models_dir / "musetalk" / "pytorch_model.bin",
+        models_dir / "dwpose" / "dw-ll_ucoco_384.pth",
+        models_dir / "face-parse-bisent" / "79999_iter.pth",
+        models_dir / "sd-vae-ft-mse" / "diffusion_pytorch_model.safetensors",
+    ]
+
+    missing = [f for f in required_files if not f.exists()]
+
+    if not missing:
+        log("All model files present, skipping download")
         _models_ready = True
         return
+
+    log(f"Missing model files: {[f.name for f in missing]}")
 
     log("Downloading models (first request, this may take 2-3 minutes)...")
 
