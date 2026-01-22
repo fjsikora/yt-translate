@@ -8,6 +8,10 @@ on:
     paths:
       - 'runpod/demucs/**'
       - 'runpod/musetalk/**'
+      - 'runpod/diarization/**'
+      - 'runpod/whisper/**'
+      - 'runpod/chatterbox/**'
+      - 'runpod/vllm/**'
       - '.github/workflows/build-runpod-workers.yml'
   workflow_dispatch:
 
@@ -42,6 +46,113 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}/demucs:latest
             ${{ env.IMAGE_PREFIX }}/demucs:${{ github.sha }}
+
+  build-diarization:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push diarization image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: runpod/diarization/Dockerfile
+          push: true
+          build-args: |
+            HF_TOKEN=${{ secrets.HUGGINGFACE_TOKEN }}
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/diarization:latest
+            ${{ env.IMAGE_PREFIX }}/diarization:${{ github.sha }}
+
+  build-whisper:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Free up disk space
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          echo "Disk space after cleanup:"
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push whisper image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: runpod/whisper/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/whisper:latest
+            ${{ env.IMAGE_PREFIX }}/whisper:${{ github.sha }}
+
+  build-chatterbox:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Free up disk space
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          echo "Disk space after cleanup:"
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push chatterbox image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: runpod/chatterbox/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/chatterbox:latest
+            ${{ env.IMAGE_PREFIX }}/chatterbox:${{ github.sha }}
 
   build-musetalk:
     runs-on: ubuntu-latest
@@ -82,3 +193,42 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}/musetalk:latest
             ${{ env.IMAGE_PREFIX }}/musetalk:${{ github.sha }}
+
+  build-vllm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Free up disk space
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          echo "Disk space after cleanup:"
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push vllm image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: runpod/vllm/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/vllm:latest
+            ${{ env.IMAGE_PREFIX }}/vllm:${{ github.sha }}
