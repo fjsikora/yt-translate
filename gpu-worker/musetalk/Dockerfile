@@ -93,7 +93,7 @@ RUN mkdir -p /app/MuseTalk/models/musetalk \
 RUN python -c "\
 from huggingface_hub import snapshot_download; \
 print('Downloading MuseTalk models...'); \
-snapshot_download('TMElyralab/MuseTalk', local_dir='/app/MuseTalk/models/musetalk', local_dir_use_symlinks=False, allow_patterns=['*.json', '*.bin', '*.pth', '*.pt', '*.safetensors']); \
+snapshot_download('TMElyralab/MuseTalk', local_dir='/app/MuseTalk/models', local_dir_use_symlinks=False, allow_patterns=['*.json', '*.bin', '*.pth', '*.pt', '*.safetensors']); \
 print('Downloading SD VAE...'); \
 snapshot_download('stabilityai/sd-vae-ft-mse', local_dir='/app/MuseTalk/models/sd-vae-ft-mse', local_dir_use_symlinks=False); \
 print('Downloading Whisper...'); \
@@ -105,6 +105,9 @@ print('Model downloads complete!'); \
 
 # Create symlink for MuseTalk's expected path (expects 'sd-vae' not 'sd-vae-ft-mse')
 RUN ln -s /app/MuseTalk/models/sd-vae-ft-mse /app/MuseTalk/models/sd-vae
+
+# Create symlink for config.json (inference.py expects config.json but HF has musetalk.json)
+RUN ln -sf /app/MuseTalk/models/musetalk/musetalk.json /app/MuseTalk/models/musetalk/config.json
 
 # Download face-parse-bisent models
 RUN wget -q https://download.pytorch.org/models/resnet18-5c106cde.pth \
