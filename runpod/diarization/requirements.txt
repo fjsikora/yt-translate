@@ -7,3 +7,5 @@ torchaudio>=2.0.0
 soundfile>=0.12.0
 numpy>=1.24.0
 pyannote.audio>=3.3.0
+# Pin huggingface_hub - pyannote 3.x uses deprecated use_auth_token parameter
+huggingface_hub<0.24.0
