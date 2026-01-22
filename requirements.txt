@@ -25,4 +25,10 @@ numpy>=1.26.0
 # TUI
 rich>=13.0.0
 
+# Supabase client (database & storage)
+supabase>=2.0.0
+
+# Payment provider (payments)
+payment-provider>=7.0.0
+
 # System requirement: ffmpeg must be installed separately
