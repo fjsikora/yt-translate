@@ -346,7 +346,7 @@ def list_translation_jobs_by_user(user_id: str) -> list[dict]:
 PREVIEW_BUCKET = "previews"
 TRANSLATIONS_BUCKET = "translations"
 VOICE_SAMPLES_BUCKET = "voice-samples"
-TEMP_BUCKET = "temp-files"
+TEMP_BUCKET = "tmp-files"
 
 
 def upload_to_storage(
