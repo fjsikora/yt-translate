@@ -67,10 +67,10 @@ WORKDIR /app
 # PyTorch Installation (CUDA 12.4)
 # ============================================================================
 # Install PyTorch first to ensure correct CUDA version
-# Using torch 2.6.0 for chatterbox-tts compatibility
+# Using torch 2.5.1 to avoid PyTorch 2.6 weights_only=True breaking pyannote
 RUN pip install --no-cache-dir \
-    torch==2.6.0 \
-    torchaudio==2.6.0 \
+    torch==2.5.1 \
+    torchaudio==2.5.1 \
     --index-url https://download.pytorch.org/whl/cu124
 
 # ============================================================================
