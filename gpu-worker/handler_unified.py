@@ -3,7 +3,8 @@ Unified Self-hosted GPU Handler for Dubbing Studio
 
 FastAPI server for the AI pipeline with endpoints for:
 - Health monitoring (/health)
-- Future: Transcription, diarization, separation, translation, TTS, mixing
+- Transcription (/transcribe)
+- Future: Diarization, separation, translation, TTS, mixing
 
 The server loads AI models on startup and reports their status.
 """
@@ -13,12 +14,15 @@ import logging
 import os
 import signal
 import sys
+import tempfile
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
+import httpx
 import psutil
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field, HttpUrl
 
 # Configure logging
 logging.basicConfig(
@@ -53,6 +57,39 @@ class ModelStatus(BaseModel):
 
 
 # =============================================================================
+# Transcription Models
+# =============================================================================
+
+
+class TranscribeRequest(BaseModel):
+    """Request model for transcription endpoint."""
+
+    audio_url: HttpUrl = Field(..., description="URL of audio file to transcribe")
+    word_timestamps: bool = Field(
+        default=False, description="Include word-level timestamps in response"
+    )
+
+
+class TranscriptionSegment(BaseModel):
+    """A single transcription segment."""
+
+    start: float = Field(..., description="Start time in seconds")
+    end: float = Field(..., description="End time in seconds")
+    text: str = Field(..., description="Transcribed text")
+
+
+class TranscribeResponse(BaseModel):
+    """Response model for transcription endpoint."""
+
+    segments: list[TranscriptionSegment] = Field(
+        default_factory=list, description="List of transcription segments"
+    )
+    language: str = Field(..., description="Detected language code")
+    text: str = Field(default="", description="Full transcription text")
+    duration: float = Field(default=0.0, description="Audio duration in seconds")
+
+
+# =============================================================================
 # Global State
 # =============================================================================
 
@@ -64,9 +101,75 @@ class AppState:
         self.models_loaded: list[str] = []
         self.model_errors: dict[str, str] = {}
         self.shutdown_event: asyncio.Event | None = None
+        # Model instances
+        self.whisper_model: Any = None
+        self.demucs_model: Any = None
+        self.pyannote_pipeline: Any = None
+        self.chatterbox_model: Any = None
+        self.llama_model: Any = None
 
 
 app_state = AppState()
+
+
+# =============================================================================
+# Audio Download Utility
+# =============================================================================
+
+
+async def download_audio(audio_url: str, timeout: float = 300.0) -> Path:
+    """
+    Download audio file from URL to a temporary location.
+
+    Args:
+        audio_url: URL of the audio file (e.g., Supabase signed URL)
+        timeout: Download timeout in seconds
+
+    Returns:
+        Path to the downloaded temporary file
+
+    Raises:
+        HTTPException: If download fails
+    """
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(audio_url)
+            response.raise_for_status()
+
+            # Determine file extension from content-type or URL
+            content_type = response.headers.get("content-type", "")
+            if "wav" in content_type or audio_url.endswith(".wav"):
+                suffix = ".wav"
+            elif "mp3" in content_type or audio_url.endswith(".mp3"):
+                suffix = ".mp3"
+            elif "flac" in content_type or audio_url.endswith(".flac"):
+                suffix = ".flac"
+            elif "ogg" in content_type or audio_url.endswith(".ogg"):
+                suffix = ".ogg"
+            else:
+                suffix = ".wav"  # Default to wav
+
+            # Write to temp file
+            temp_file = tempfile.NamedTemporaryFile(
+                suffix=suffix, delete=False, prefix="audio_"
+            )
+            temp_file.write(response.content)
+            temp_file.close()
+
+            logger.info(
+                f"Downloaded audio to {temp_file.name} ({len(response.content)} bytes)"
+            )
+            return Path(temp_file.name)
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error downloading audio: {e.response.status_code}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to download audio: HTTP {e.response.status_code}",
+        )
+    except httpx.RequestError as e:
+        logger.error(f"Request error downloading audio: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to download audio: {e}")
 
 
 # =============================================================================
@@ -152,9 +255,10 @@ def load_whisper() -> None:
     compute_type = "float16" if device == "cuda" else "int8"
 
     logger.info(f"  → Whisper model: {model_size}, device: {device}")
-    # Create model instance to verify loading works
-    # In production, this would be stored in app_state for reuse
-    _ = WhisperModel(model_size, device=device, compute_type=compute_type)
+    # Create model instance and store in app_state for reuse
+    app_state.whisper_model = WhisperModel(
+        model_size, device=device, compute_type=compute_type
+    )
 
 
 def load_demucs() -> None:
@@ -339,3 +443,121 @@ async def root() -> dict[str, str]:
         "docs": "/docs",
         "health": "/health",
     }
+
+
+@app.post("/transcribe", response_model=TranscribeResponse)
+async def transcribe(request: TranscribeRequest) -> TranscribeResponse:
+    """
+    Transcribe audio file using Whisper.
+
+    Accepts an audio URL (e.g., from Supabase storage) and returns
+    timestamped transcription segments.
+
+    Args:
+        request: TranscribeRequest with audio_url and optional word_timestamps
+
+    Returns:
+        TranscribeResponse with segments, detected language, and full text
+
+    Raises:
+        HTTPException: If transcription fails or Whisper model not loaded
+    """
+    # Check if Whisper model is loaded
+    if app_state.whisper_model is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Whisper model not loaded. Check /health for model status.",
+        )
+
+    temp_file: Path | None = None
+
+    try:
+        # Download audio from URL
+        logger.info(f"Transcribing audio from: {request.audio_url}")
+        temp_file = await download_audio(str(request.audio_url))
+
+        # Run transcription in thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        segments_data, info = await loop.run_in_executor(
+            None,
+            _run_whisper_transcription,
+            str(temp_file),
+            request.word_timestamps,
+        )
+
+        # Build response
+        segments = [
+            TranscriptionSegment(start=seg["start"], end=seg["end"], text=seg["text"])
+            for seg in segments_data
+        ]
+        full_text = " ".join(seg["text"] for seg in segments_data)
+
+        logger.info(
+            f"Transcription complete: {len(segments)} segments, "
+            f"language={info['language']}, duration={info['duration']:.1f}s"
+        )
+
+        return TranscribeResponse(
+            segments=segments,
+            language=info["language"],
+            text=full_text,
+            duration=info["duration"],
+        )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.error(f"Transcription failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
+    finally:
+        # Clean up temp file
+        if temp_file and temp_file.exists():
+            try:
+                temp_file.unlink()
+            except Exception as e:
+                logger.warning(f"Failed to clean up temp file: {e}")
+
+
+def _run_whisper_transcription(
+    audio_path: str, word_timestamps: bool
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """
+    Run Whisper transcription synchronously.
+
+    This function is meant to be run in a thread pool executor.
+
+    Args:
+        audio_path: Path to the audio file
+        word_timestamps: Whether to include word-level timestamps
+
+    Returns:
+        Tuple of (segments list, info dict with language and duration)
+    """
+    segments_list: list[dict[str, Any]] = []
+
+    # Run transcription
+    segments_generator, info = app_state.whisper_model.transcribe(
+        audio_path,
+        word_timestamps=word_timestamps,
+        vad_filter=True,  # Voice activity detection for better quality
+    )
+
+    # Consume the generator and build segments list
+    for segment in segments_generator:
+        segment_data: dict[str, Any] = {
+            "start": segment.start,
+            "end": segment.end,
+            "text": segment.text.strip(),
+        }
+
+        # Include word timestamps if requested
+        if word_timestamps and segment.words:
+            segment_data["words"] = [
+                {"start": word.start, "end": word.end, "word": word.word}
+                for word in segment.words
+            ]
+
+        segments_list.append(segment_data)
+
+    return segments_list, {"language": info.language, "duration": info.duration}
