@@ -117,6 +117,24 @@ class DiarizeResponse(BaseModel):
 
 
 # =============================================================================
+# Audio Separation Models
+# =============================================================================
+
+
+class SeparateRequest(BaseModel):
+    """Request model for audio separation endpoint."""
+
+    audio_url: HttpUrl = Field(..., description="URL of audio file to separate")
+
+
+class SeparateResponse(BaseModel):
+    """Response model for audio separation endpoint."""
+
+    vocals_url: str = Field(..., description="Signed URL for vocals audio file")
+    background_url: str = Field(..., description="Signed URL for background audio file")
+
+
+# =============================================================================
 # Global State
 # =============================================================================
 
@@ -290,11 +308,20 @@ def load_whisper() -> None:
 
 def load_demucs() -> None:
     """Load Demucs model for audio separation."""
-    import torch
+    from demucs.pretrained import get_model
 
     logger.info("  → Loading Demucs htdemucs model")
-    # Load from torch hub
-    _ = torch.hub.load("facebookresearch/demucs", "htdemucs", source="github")
+    model = get_model("htdemucs")
+    model.eval()
+
+    # Move to GPU if available
+    if is_cuda_available():
+        import torch
+
+        model.to(torch.device("cuda"))
+        logger.info("  → Demucs model moved to GPU")
+
+    app_state.demucs_model = model
 
 
 def load_pyannote() -> None:
@@ -709,3 +736,233 @@ def _run_pyannote_diarization(audio_path: str) -> list[dict[str, Any]]:
     segments_list.sort(key=lambda x: x["start"])
 
     return segments_list
+
+
+@app.post("/separate", response_model=SeparateResponse)
+async def separate(request: SeparateRequest) -> SeparateResponse:
+    """
+    Separate audio into vocals and background using Demucs.
+
+    Accepts an audio URL (e.g., from Supabase storage) and returns
+    signed URLs for the separated vocals and background audio files.
+
+    Args:
+        request: SeparateRequest with audio_url
+
+    Returns:
+        SeparateResponse with vocals_url and background_url (Supabase signed URLs)
+
+    Raises:
+        HTTPException: If separation fails or Demucs model not loaded
+    """
+    # Check if Demucs model is loaded
+    if app_state.demucs_model is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Demucs model not loaded. Check /health for model status.",
+        )
+
+    temp_file: Path | None = None
+    vocals_path: Path | None = None
+    background_path: Path | None = None
+
+    try:
+        # Download audio from URL
+        logger.info(f"Separating audio from: {request.audio_url}")
+        temp_file = await download_audio(str(request.audio_url))
+
+        # Run separation in thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        vocals_array, background_array, sample_rate = await loop.run_in_executor(
+            None,
+            _run_demucs_separation,
+            str(temp_file),
+        )
+
+        # Save separated audio to temp files
+        vocals_path = Path(tempfile.mktemp(suffix=".wav", prefix="vocals_"))
+        background_path = Path(tempfile.mktemp(suffix=".wav", prefix="background_"))
+
+        import soundfile as sf
+
+        sf.write(str(vocals_path), vocals_array, sample_rate)
+        sf.write(str(background_path), background_array, sample_rate)
+
+        logger.info(
+            f"Separation complete: vocals={vocals_path.stat().st_size / 1e6:.1f}MB, "
+            f"background={background_path.stat().st_size / 1e6:.1f}MB"
+        )
+
+        # Upload to Supabase storage
+        vocals_url, background_url = await _upload_separated_audio(
+            vocals_path, background_path
+        )
+
+        return SeparateResponse(
+            vocals_url=vocals_url,
+            background_url=background_url,
+        )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.error(f"Audio separation failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Audio separation failed: {e}")
+    finally:
+        # Clean up temp files
+        for path in [temp_file, vocals_path, background_path]:
+            if path and path.exists():
+                try:
+                    path.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temp file: {e}")
+
+
+def _run_demucs_separation(audio_path: str) -> tuple[Any, Any, int]:
+    """
+    Run Demucs audio separation synchronously.
+
+    This function is meant to be run in a thread pool executor.
+
+    Args:
+        audio_path: Path to the audio file
+
+    Returns:
+        Tuple of (vocals_array, background_array, sample_rate)
+    """
+    import soundfile as sf
+    import torch
+    import torchaudio
+    from demucs.apply import apply_model
+
+    model = app_state.demucs_model
+
+    # Load audio with soundfile
+    audio_data, input_sr = sf.read(audio_path)
+    wav = torch.from_numpy(audio_data).float()
+
+    # Handle shape: soundfile returns (samples,) or (samples, channels)
+    # torch expects (channels, samples)
+    if wav.dim() == 1:
+        wav = wav.unsqueeze(0)  # (samples,) -> (1, samples)
+    elif wav.dim() == 2:
+        wav = wav.T  # (samples, channels) -> (channels, samples)
+
+    # Get model's expected sample rate (htdemucs uses 44100)
+    model_sr = model.samplerate
+
+    # Resample to model's sample rate if needed
+    if input_sr != model_sr:
+        logger.info(f"Resampling from {input_sr} to {model_sr} Hz")
+        resampler = torchaudio.transforms.Resample(
+            orig_freq=input_sr, new_freq=model_sr
+        )
+        wav = resampler(wav)
+
+    # Ensure stereo (Demucs expects stereo input)
+    if wav.shape[0] == 1:
+        wav = wav.repeat(2, 1)
+
+    # Add batch dimension and move to device
+    device = next(model.parameters()).device
+    wav = wav.unsqueeze(0).to(device)
+
+    # Apply model
+    logger.info("Running Demucs source separation...")
+    with torch.no_grad():
+        sources = apply_model(model, wav, device=device, progress=False)
+
+    # sources shape: (batch, sources, channels, samples)
+    # htdemucs sources: drums, bass, other, vocals
+    sources = sources.squeeze(0).cpu()
+
+    # Get source names
+    source_names = model.sources
+    vocals_idx = source_names.index("vocals") if "vocals" in source_names else -1
+
+    if vocals_idx == -1:
+        raise RuntimeError("Model doesn't have 'vocals' source")
+
+    # Extract vocals and combine others for background
+    vocals = sources[vocals_idx]
+    background_sources = [
+        sources[i] for i in range(len(source_names)) if i != vocals_idx
+    ]
+    background = sum(background_sources)
+
+    # Convert to mono and numpy
+    vocals_array = vocals.mean(dim=0).numpy()
+    background_array = background.mean(dim=0).numpy()
+
+    # Clean up GPU memory
+    del wav, sources
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    return vocals_array, background_array, model_sr
+
+
+async def _upload_separated_audio(
+    vocals_path: Path, background_path: Path
+) -> tuple[str, str]:
+    """
+    Upload separated audio files to Supabase storage.
+
+    Args:
+        vocals_path: Path to vocals audio file
+        background_path: Path to background audio file
+
+    Returns:
+        Tuple of (vocals_signed_url, background_signed_url)
+    """
+    import uuid
+
+    from supabase import create_client
+
+    # Get Supabase credentials from environment
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+
+    if not supabase_url or not supabase_key:
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables required"
+        )
+
+    client = create_client(supabase_url, supabase_key)
+
+    # Generate unique job ID for storage path
+    job_id = str(uuid.uuid4())
+    bucket = "dub-audio"  # Bucket for dubbing audio files
+
+    # Upload vocals
+    vocals_storage_path = f"{job_id}/vocals.wav"
+    with open(vocals_path, "rb") as f:
+        vocals_content = f.read()
+    client.storage.from_(bucket).upload(
+        path=vocals_storage_path,
+        file=vocals_content,
+        file_options={"content-type": "audio/wav", "upsert": "true"},
+    )
+
+    # Upload background
+    background_storage_path = f"{job_id}/background.wav"
+    with open(background_path, "rb") as f:
+        background_content = f.read()
+    client.storage.from_(bucket).upload(
+        path=background_storage_path,
+        file=background_content,
+        file_options={"content-type": "audio/wav", "upsert": "true"},
+    )
+
+    # Get signed URLs (1 hour expiry)
+    vocals_signed = client.storage.from_(bucket).create_signed_url(
+        vocals_storage_path, 3600
+    )
+    background_signed = client.storage.from_(bucket).create_signed_url(
+        background_storage_path, 3600
+    )
+
+    logger.info(f"Uploaded separated audio to Supabase: {job_id}")
+
+    return vocals_signed.get("signedURL", ""), background_signed.get("signedURL", "")
