@@ -96,8 +96,9 @@ RUN echo "Downloading Whisper large-v3 model..." && \
     python -c "import whisper; whisper.load_model('large-v3')"
 
 # 2. Demucs htdemucs (~500MB)
+# Using demucs.pretrained instead of torch.hub.load for better reliability
 RUN echo "Downloading Demucs htdemucs model..." && \
-    python -c "import torch; torch.hub.load('facebookresearch/demucs', 'htdemucs', source='github')"
+    python -c "from demucs.pretrained import get_model; get_model('htdemucs')"
 
 # 3. Chatterbox TTS models (~2GB)
 # Downloaded from HuggingFace Hub on first use, but we pre-warm the cache
