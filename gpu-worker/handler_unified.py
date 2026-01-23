@@ -606,7 +606,7 @@ def load_llama() -> None:
     """Load Qwen3 model via llama.cpp for translation."""
     from llama_cpp import Llama
 
-    model_path = os.getenv("MODEL_PATH", "/models/qwen3-8b-q4_k_m.gguf")
+    model_path = os.getenv("MODEL_PATH", "/models/Qwen3-8B-Q4_K_M.gguf")
     if not os.path.exists(model_path):
         raise RuntimeError(f"GGUF model not found at {model_path}")
 
