@@ -19,6 +19,30 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+# =============================================================================
+# PyTorch 2.6 Compatibility Fix
+# =============================================================================
+# PyTorch 2.6 changed torch.load() default from weights_only=False to True
+# This breaks pyannote.audio and other libraries that saved models with
+# non-standard objects. We monkey-patch torch.load to restore old behavior.
+import functools
+
+import torch
+
+_original_torch_load = torch.load
+
+
+@functools.wraps(_original_torch_load)
+def _patched_torch_load(*args, **kwargs):
+    """Patched torch.load with weights_only=False by default for compatibility."""
+    if "weights_only" not in kwargs:
+        kwargs["weights_only"] = False
+    return _original_torch_load(*args, **kwargs)
+
+
+torch.load = _patched_torch_load
+# =============================================================================
+
 import httpx
 import psutil
 from fastapi import FastAPI, HTTPException

@@ -91,9 +91,10 @@ RUN pip install --no-cache-dir -r /app/requirements.unified.txt
 # Model Downloads (Build Time)
 # ============================================================================
 
-# 1. Whisper large-v3 (~3GB)
-RUN echo "Downloading Whisper large-v3 model..." && \
-    python -c "import whisper; whisper.load_model('large-v3')"
+# 1. Whisper large-v3 (~3GB) - using faster-whisper
+# faster-whisper uses CTranslate2 format, downloads from HuggingFace Hub
+RUN echo "Downloading Whisper large-v3 model (faster-whisper)..." && \
+    python -c "from faster_whisper import WhisperModel; WhisperModel('large-v3', device='cpu', compute_type='int8')"
 
 # 2. Demucs htdemucs (~500MB)
 # Using demucs.pretrained instead of torch.hub.load for better reliability
