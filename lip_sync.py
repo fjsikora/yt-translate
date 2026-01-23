@@ -103,6 +103,14 @@ def stretch_video(
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg stretch failed: {result.stderr}")
 
+    # Verify output file was created
+    if not output_path.exists():
+        raise RuntimeError(
+            f"ffmpeg completed but output file not found: {output_path}\n"
+            f"stdout: {result.stdout[-500:] if result.stdout else 'empty'}\n"
+            f"stderr: {result.stderr[-500:] if result.stderr else 'empty'}"
+        )
+
     print(f"  Output: {output_path}")
     return output_path
 
