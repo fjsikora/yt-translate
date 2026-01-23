@@ -1696,8 +1696,13 @@ async def _run_ffmpeg_mix(
     Uses the amix filter to combine tracks. The background is padded with silence
     if shorter than speech, and the output duration matches the longer input.
 
+    Both inputs are resampled to 44100Hz before mixing to handle sample rate
+    mismatches (e.g., TTS outputs 24kHz, Demucs outputs 44.1kHz).
+
     Filter breakdown:
-    - [1:a]apad: Pad background with silence if shorter than speech
+    - [0:a]aresample=44100: Resample speech to 44.1kHz
+    - [1:a]aresample=44100: Resample background to 44.1kHz
+    - apad: Pad background with silence if shorter than speech
     - volume={vol}: Apply volume adjustment to background
     - amix: Mix the two streams together
     - duration=longest: Output matches the longest input
@@ -1708,14 +1713,19 @@ async def _run_ffmpeg_mix(
         output_path: Path for output mixed audio file
         background_volume: Volume level for background (0.0 to 1.0)
     """
+    # Target sample rate for output (standard audio rate)
+    target_sr = 44100
+
     # Build the FFmpeg filter for mixing
-    # [1:a]apad: Pad background with silence if shorter than speech
-    # volume={vol}: Apply volume to background
+    # Resample both inputs to the same sample rate to avoid mixing issues
+    # [0:a]aresample: Resample speech to target sample rate
+    # [1:a]aresample,apad,volume: Resample background, pad, and apply volume
     # amix: Mix the two streams
     # duration=longest: Output duration matches the longest input
     filter_complex = (
-        f"[1:a]apad,volume={background_volume}[bg];"
-        f"[0:a][bg]amix=inputs=2:duration=longest:dropout_transition=0"
+        f"[0:a]aresample={target_sr}[speech];"
+        f"[1:a]aresample={target_sr},apad,volume={background_volume}[bg];"
+        f"[speech][bg]amix=inputs=2:duration=longest:dropout_transition=0"
     )
 
     cmd = [
@@ -1727,6 +1737,8 @@ async def _run_ffmpeg_mix(
         str(background_path),
         "-filter_complex",
         filter_complex,
+        "-ar",
+        str(target_sr),  # Output sample rate
         "-ac",
         "2",  # Stereo output
         "-acodec",
@@ -1734,7 +1746,7 @@ async def _run_ffmpeg_mix(
         str(output_path),
     ]
 
-    logger.info(f"Running FFmpeg mix: volume={background_volume}")
+    logger.info(f"Running FFmpeg mix: volume={background_volume}, target_sr={target_sr}")
 
     # Run FFmpeg
     process = await asyncio.create_subprocess_exec(
