@@ -135,6 +135,30 @@ class SeparateResponse(BaseModel):
 
 
 # =============================================================================
+# Audio Mixing Models
+# =============================================================================
+
+
+class MixRequest(BaseModel):
+    """Request model for audio mixing endpoint."""
+
+    speech_url: HttpUrl = Field(..., description="URL of speech audio file")
+    background_url: HttpUrl = Field(..., description="URL of background audio file")
+    background_volume: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Background volume level (0.0 = silent, 1.0 = full volume)",
+    )
+
+
+class MixResponse(BaseModel):
+    """Response model for audio mixing endpoint."""
+
+    mixed_url: str = Field(..., description="Signed URL for mixed audio file")
+
+
+# =============================================================================
 # TTS Synthesis Models
 # =============================================================================
 
@@ -1426,5 +1450,190 @@ async def _upload_synthesized_audio(audio_path: Path) -> str:
     signed_result = client.storage.from_(bucket).create_signed_url(storage_path, 3600)
 
     logger.info(f"Uploaded synthesized audio to Supabase: {job_id}")
+
+    return signed_result.get("signedURL", "")
+
+
+# =============================================================================
+# Audio Mixing Endpoint
+# =============================================================================
+
+
+@app.post("/mix", response_model=MixResponse)
+async def mix(request: MixRequest) -> MixResponse:
+    """
+    Mix speech audio with background audio using FFmpeg.
+
+    Accepts speech and background audio URLs and returns a mixed audio file
+    where the background is adjusted to the specified volume level.
+    If audio tracks have different lengths, the shorter one is padded with silence.
+
+    Args:
+        request: MixRequest with speech_url, background_url, and background_volume
+
+    Returns:
+        MixResponse with mixed_url (Supabase signed URL)
+
+    Raises:
+        HTTPException: If mixing fails
+    """
+    speech_path: Path | None = None
+    background_path: Path | None = None
+    mixed_path: Path | None = None
+
+    try:
+        # Download both audio files
+        logger.info(
+            f"Mixing audio: speech + background (volume: {request.background_volume})"
+        )
+
+        speech_path = await download_audio(str(request.speech_url))
+        background_path = await download_audio(str(request.background_url))
+
+        # Create output path
+        mixed_path = Path(tempfile.mktemp(suffix=".wav", prefix="mixed_"))
+
+        # Run FFmpeg mixing
+        await _run_ffmpeg_mix(
+            speech_path=speech_path,
+            background_path=background_path,
+            output_path=mixed_path,
+            background_volume=request.background_volume,
+        )
+
+        # Verify output
+        if not mixed_path.exists():
+            raise RuntimeError("FFmpeg mixing produced no output file")
+
+        logger.info(f"Mixing complete: {mixed_path.stat().st_size / 1e6:.1f}MB")
+
+        # Upload to Supabase storage
+        mixed_url = await _upload_mixed_audio(mixed_path)
+
+        return MixResponse(mixed_url=mixed_url)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Audio mixing failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Audio mixing failed: {e}")
+    finally:
+        # Clean up temp files
+        for path in [speech_path, background_path, mixed_path]:
+            if path and path.exists():
+                try:
+                    path.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temp file: {e}")
+
+
+async def _run_ffmpeg_mix(
+    speech_path: Path,
+    background_path: Path,
+    output_path: Path,
+    background_volume: float,
+) -> None:
+    """
+    Mix speech and background audio using FFmpeg.
+
+    Uses the amix filter to combine tracks. The background is padded with silence
+    if shorter than speech, and the output duration matches the longer input.
+
+    Filter breakdown:
+    - [1:a]apad: Pad background with silence if shorter than speech
+    - volume={vol}: Apply volume adjustment to background
+    - amix: Mix the two streams together
+    - duration=longest: Output matches the longest input
+
+    Args:
+        speech_path: Path to speech audio file
+        background_path: Path to background audio file
+        output_path: Path for output mixed audio file
+        background_volume: Volume level for background (0.0 to 1.0)
+    """
+    # Build the FFmpeg filter for mixing
+    # [1:a]apad: Pad background with silence if shorter than speech
+    # volume={vol}: Apply volume to background
+    # amix: Mix the two streams
+    # duration=longest: Output duration matches the longest input
+    filter_complex = (
+        f"[1:a]apad,volume={background_volume}[bg];"
+        f"[0:a][bg]amix=inputs=2:duration=longest:dropout_transition=0"
+    )
+
+    cmd = [
+        "ffmpeg",
+        "-y",  # Overwrite output
+        "-i",
+        str(speech_path),
+        "-i",
+        str(background_path),
+        "-filter_complex",
+        filter_complex,
+        "-ac",
+        "2",  # Stereo output
+        "-acodec",
+        "pcm_s16le",  # WAV format
+        str(output_path),
+    ]
+
+    logger.info(f"Running FFmpeg mix: volume={background_volume}")
+
+    # Run FFmpeg
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        error_msg = stderr.decode()[:500]
+        raise RuntimeError(f"FFmpeg mixing failed: {error_msg}")
+
+
+async def _upload_mixed_audio(audio_path: Path) -> str:
+    """
+    Upload mixed audio to Supabase storage.
+
+    Args:
+        audio_path: Path to audio file to upload
+
+    Returns:
+        Signed URL for the uploaded audio file
+    """
+    import uuid
+
+    from supabase import create_client
+
+    # Get Supabase credentials from environment
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+
+    if not supabase_url or not supabase_key:
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables required"
+        )
+
+    client = create_client(supabase_url, supabase_key)
+
+    # Generate unique path for storage
+    job_id = str(uuid.uuid4())
+    bucket = "dub-audio"  # Bucket for dubbing audio files
+    storage_path = f"{job_id}/mixed.wav"
+
+    # Upload audio
+    with open(audio_path, "rb") as f:
+        audio_content = f.read()
+    client.storage.from_(bucket).upload(
+        path=storage_path,
+        file=audio_content,
+        file_options={"content-type": "audio/wav", "upsert": "true"},
+    )
+
+    # Get signed URL (1 hour expiry)
+    signed_result = client.storage.from_(bucket).create_signed_url(storage_path, 3600)
+
+    logger.info(f"Uploaded mixed audio to Supabase: {job_id}")
 
     return signed_result.get("signedURL", "")
