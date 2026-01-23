@@ -43,6 +43,13 @@ SIGNED_URL_EXPIRATION_LONG = 86400  # Long-lived signed URL expiration (24 hours
 # ============================================================================
 WHISPER_SAMPLE_RATE = 16000  # Whisper expects 16kHz audio
 BACKGROUND_VOLUME = 1.0  # Full original volume for better UX (100%)
+SKIP_BACKGROUND_MIXING = True  # Skip background audio mixing, use speech only
+
+# ============================================================================
+# Segment Timing Constants
+# ============================================================================
+BLOCK_GAP_THRESHOLD = 1.0  # Gap threshold to detect new speaking block (seconds)
+SEGMENT_GAP_SECONDS = 0.5  # Natural pause between segments within a block
 
 # ============================================================================
 # Replicate Model Names

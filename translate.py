@@ -48,6 +48,9 @@ from config import (
     CHATTERBOX_SAMPLE_RATE,
     VOICE_SAMPLE_DURATION_SECONDS,
     BACKGROUND_VOLUME,
+    SKIP_BACKGROUND_MIXING,
+    BLOCK_GAP_THRESHOLD,
+    SEGMENT_GAP_SECONDS,
 )
 from llm_translate import translate_segments_llm
 
@@ -380,9 +383,9 @@ def synthesize_segments(segments: list[dict], voice_sample: Path, lang_code: str
     tracker.update_detail("synthesize", f"Analyzing voice from {voice_sample.name}...")
     update_fn()
 
-    # Process each segment and collect audio with original start times
+    # Process each segment and collect audio with original start/end times
     total_segments = len(segments)
-    segment_audios: list[tuple[float, np.ndarray]] = []  # (original_start, audio)
+    segment_audios: list[tuple[float, float, np.ndarray]] = []  # (original_start, original_end, audio)
 
     for i, seg in enumerate(segments):
         text = seg["translated_text"]
@@ -403,26 +406,38 @@ def synthesize_segments(segments: list[dict], voice_sample: Path, lang_code: str
 
         # Convert to numpy
         audio_np = wav.squeeze().cpu().numpy()
-        segment_audios.append((seg["start"], audio_np))
+        segment_audios.append((seg["start"], seg["end"], audio_np))
 
-    # Combine all segments with adjusted timing to prevent overlap
-    # Each segment starts at max(original_start, previous_segment_end)
-    tracker.update_detail("synthesize", "Combining segments (natural timing, no stretching)...")
+    # Combine all segments with smart timing:
+    # - Within a block: segments placed back-to-back with small gap
+    # - Between blocks: preserve original speaker turn timing
+    tracker.update_detail("synthesize", "Combining segments (smart timing)...")
     update_fn()
 
     # First pass: calculate actual positions to determine total length
     positioned_audios: list[tuple[float, np.ndarray]] = []
     current_end_time = 0.0
+    prev_original_end = 0.0
 
-    for original_start, audio in segment_audios:
+    for original_start, original_end, audio in segment_audios:
         audio_duration = len(audio) / sample_rate
 
-        # Start at the later of: original timestamp or when previous segment ends
-        actual_start = max(original_start, current_end_time)
+        # Detect if this is a new speaking block (gap > threshold in original)
+        gap_in_original = original_start - prev_original_end
+
+        if gap_in_original > BLOCK_GAP_THRESHOLD:
+            # New block: start at original timestamp (preserve turn timing)
+            # but don't overlap with previous block
+            actual_start = max(original_start, current_end_time)
+        else:
+            # Same block: place after previous with small gap
+            actual_start = current_end_time + SEGMENT_GAP_SECONDS
+
         positioned_audios.append((actual_start, audio))
 
-        # Update end time for next segment
+        # Update tracking
         current_end_time = actual_start + audio_duration
+        prev_original_end = original_end
 
     # Calculate actual output length (may be longer than original video)
     actual_total_duration = max(total_duration, current_end_time)
@@ -528,9 +543,9 @@ def synthesize_segments_multi_speaker(
 
         return best_speaker
 
-    # Process each segment and collect audio with original start times
+    # Process each segment and collect audio with original start/end times
     total_segments = len(segments)
-    segment_audios: list[tuple[float, np.ndarray]] = []  # (original_start, audio)
+    segment_audios: list[tuple[float, float, np.ndarray]] = []  # (original_start, original_end, audio)
 
     for i, seg in enumerate(segments):
         text = seg["translated_text"]
@@ -560,26 +575,38 @@ def synthesize_segments_multi_speaker(
 
         # Convert to numpy
         audio_np = wav.squeeze().cpu().numpy()
-        segment_audios.append((seg["start"], audio_np))
+        segment_audios.append((seg["start"], seg["end"], audio_np))
 
-    # Combine all segments with adjusted timing to prevent overlap
-    # Each segment starts at max(original_start, previous_segment_end)
-    tracker.update_detail("synthesize", "Combining segments (natural timing, no stretching)...")
+    # Combine all segments with smart timing:
+    # - Within a block: segments placed back-to-back with small gap
+    # - Between blocks: preserve original speaker turn timing
+    tracker.update_detail("synthesize", "Combining segments (smart timing)...")
     update_fn()
 
     # First pass: calculate actual positions to determine total length
     positioned_audios: list[tuple[float, np.ndarray]] = []
     current_end_time = 0.0
+    prev_original_end = 0.0
 
-    for original_start, audio in segment_audios:
+    for original_start, original_end, audio in segment_audios:
         audio_duration = len(audio) / sample_rate
 
-        # Start at the later of: original timestamp or when previous segment ends
-        actual_start = max(original_start, current_end_time)
+        # Detect if this is a new speaking block (gap > threshold in original)
+        gap_in_original = original_start - prev_original_end
+
+        if gap_in_original > BLOCK_GAP_THRESHOLD:
+            # New block: start at original timestamp (preserve turn timing)
+            # but don't overlap with previous block
+            actual_start = max(original_start, current_end_time)
+        else:
+            # Same block: place after previous with small gap
+            actual_start = current_end_time + SEGMENT_GAP_SECONDS
+
         positioned_audios.append((actual_start, audio))
 
-        # Update end time for next segment
+        # Update tracking
         current_end_time = actual_start + audio_duration
+        prev_original_end = original_end
 
     # Calculate actual output length (may be longer than original video)
     actual_total_duration = max(total_duration, current_end_time)
@@ -679,6 +706,7 @@ def mix_audio_with_background(
     background_path: Path,
     output_path: Optional[Path] = None,
     background_volume: float = 0.3,
+    skip_mixing: bool = False,
 ) -> Path:
     """Mix translated speech with original background audio using ffmpeg.
 
@@ -687,13 +715,18 @@ def mix_audio_with_background(
         background_path: Path to the background audio WAV file
         output_path: Output path for the mixed audio. If None, uses OUTPUT_DIR/"mixed_audio.wav"
         background_volume: Volume level for background audio (0.0 to 1.0, default 0.3 = 30%)
+        skip_mixing: If True, return speech audio directly without mixing background
 
     Returns:
-        Path to the mixed audio file
+        Path to the mixed audio file (or speech file if skip_mixing=True)
 
     The output duration matches the speech track. If background is shorter,
     it's stretched to match. If background is longer, it's trimmed.
     """
+    # Skip mixing - return speech audio directly
+    if skip_mixing:
+        return speech_path
+
     if output_path is None:
         output_path = OUTPUT_DIR / "mixed_audio.wav"
 
@@ -1066,10 +1099,15 @@ def translate_video(
             )
         report_progress("synthesize", "Voice synthesis complete", 5, 1.0)
 
-        # Stage 7: Mix audio with BACKGROUND_VOLUME from config
-        report_progress("mix", "Mixing speech with background audio...", 6)
+        # Stage 7: Mix audio with background (or skip if configured)
+        if SKIP_BACKGROUND_MIXING:
+            report_progress("mix", "Skipping background mixing (using speech only)...", 6)
+        else:
+            report_progress("mix", "Mixing speech with background audio...", 6)
         mixed_audio = mix_audio_with_background(
-            speech_audio, background_path, background_volume=BACKGROUND_VOLUME
+            speech_audio, background_path,
+            background_volume=BACKGROUND_VOLUME,
+            skip_mixing=SKIP_BACKGROUND_MIXING,
         )
         report_progress("mix", "Audio mixing complete", 6, 1.0)
 
