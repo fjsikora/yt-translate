@@ -13,9 +13,9 @@
 # =============================================================================
 # Core ML Frameworks (CUDA 12.4 compatible)
 # =============================================================================
-torch==2.5.1
-torchaudio==2.5.1
-# Note: Using 2.5.1 for compatibility across all models
+torch==2.6.0
+torchaudio==2.6.0
+# Note: Using 2.6.0 for chatterbox-tts compatibility
 
 # =============================================================================
 # Speech-to-Text (Whisper)
