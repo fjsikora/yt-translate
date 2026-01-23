@@ -159,6 +159,58 @@ class MixResponse(BaseModel):
 
 
 # =============================================================================
+# Full Pipeline (Dub) Models
+# =============================================================================
+
+
+class DubRequest(BaseModel):
+    """Request model for full dubbing pipeline endpoint."""
+
+    video_url: HttpUrl = Field(..., description="URL of video file to dub")
+    source_lang: str = Field(
+        default="en", description="Source language code (e.g., 'en')"
+    )
+    target_lang: str = Field(
+        default="es", description="Target language name (e.g., 'Spanish')"
+    )
+    project_id: str | None = Field(
+        default=None, description="Optional project ID to update in database"
+    )
+
+
+class DubSegmentResult(BaseModel):
+    """Result for a single dubbed segment."""
+
+    index: int = Field(..., description="Segment index")
+    speaker: str = Field(..., description="Speaker label")
+    original_text: str = Field(..., description="Original transcription")
+    translated_text: str = Field(..., description="Translated text")
+    start_time: float = Field(..., description="Start time in seconds")
+    end_time: float = Field(..., description="End time in seconds")
+    audio_url: str = Field(..., description="URL of synthesized audio segment")
+
+
+class DubResponse(BaseModel):
+    """Response model for full dubbing pipeline endpoint."""
+
+    project_id: str = Field(..., description="Project ID")
+    status: str = Field(..., description="Pipeline status (ready, error)")
+    vocals_url: str | None = Field(
+        default=None, description="URL of separated vocals audio"
+    )
+    background_url: str | None = Field(
+        default=None, description="URL of separated background audio"
+    )
+    mixed_url: str | None = Field(
+        default=None, description="URL of final mixed dubbed audio"
+    )
+    segments: list[DubSegmentResult] = Field(
+        default_factory=list, description="List of dubbed segments"
+    )
+    error: str | None = Field(default=None, description="Error message if failed")
+
+
+# =============================================================================
 # TTS Synthesis Models
 # =============================================================================
 
@@ -303,6 +355,111 @@ async def download_audio(audio_url: str, timeout: float = 300.0) -> Path:
     except httpx.RequestError as e:
         logger.error(f"Request error downloading audio: {e}")
         raise HTTPException(status_code=502, detail=f"Failed to download audio: {e}")
+
+
+# =============================================================================
+# Video Download and Audio Extraction
+# =============================================================================
+
+
+async def download_video(video_url: str, timeout: float = 600.0) -> Path:
+    """
+    Download video file from URL to a temporary location.
+
+    Args:
+        video_url: URL of the video file (e.g., Supabase signed URL)
+        timeout: Download timeout in seconds
+
+    Returns:
+        Path to the downloaded temporary file
+
+    Raises:
+        HTTPException: If download fails
+    """
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(video_url)
+            response.raise_for_status()
+
+            # Determine file extension from content-type or URL
+            content_type = response.headers.get("content-type", "")
+            if "mp4" in content_type or video_url.endswith(".mp4"):
+                suffix = ".mp4"
+            elif "webm" in content_type or video_url.endswith(".webm"):
+                suffix = ".webm"
+            elif "quicktime" in content_type or video_url.endswith(".mov"):
+                suffix = ".mov"
+            else:
+                suffix = ".mp4"  # Default to mp4
+
+            # Write to temp file
+            temp_file = tempfile.NamedTemporaryFile(
+                suffix=suffix, delete=False, prefix="video_"
+            )
+            temp_file.write(response.content)
+            temp_file.close()
+
+            logger.info(
+                f"Downloaded video to {temp_file.name} ({len(response.content) / 1e6:.1f}MB)"
+            )
+            return Path(temp_file.name)
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error downloading video: {e.response.status_code}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to download video: HTTP {e.response.status_code}",
+        )
+    except httpx.RequestError as e:
+        logger.error(f"Request error downloading video: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to download video: {e}")
+
+
+async def extract_audio_from_video(video_path: Path) -> Path:
+    """
+    Extract audio from video file using FFmpeg.
+
+    Args:
+        video_path: Path to the video file
+
+    Returns:
+        Path to the extracted audio file (WAV format)
+
+    Raises:
+        RuntimeError: If FFmpeg extraction fails
+    """
+    output_path = Path(tempfile.mktemp(suffix=".wav", prefix="extracted_audio_"))
+
+    cmd = [
+        "ffmpeg",
+        "-y",  # Overwrite output
+        "-i",
+        str(video_path),
+        "-vn",  # No video
+        "-acodec",
+        "pcm_s16le",  # WAV format
+        "-ar",
+        "44100",  # Sample rate
+        "-ac",
+        "2",  # Stereo
+        str(output_path),
+    ]
+
+    logger.info("Extracting audio from video...")
+
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        error_msg = stderr.decode()[:500]
+        raise RuntimeError(f"FFmpeg audio extraction failed: {error_msg}")
+
+    logger.info(f"Audio extracted: {output_path.stat().st_size / 1e6:.1f}MB")
+    return output_path
 
 
 # =============================================================================
@@ -1637,3 +1794,518 @@ async def _upload_mixed_audio(audio_path: Path) -> str:
     logger.info(f"Uploaded mixed audio to Supabase: {job_id}")
 
     return signed_result.get("signedURL", "")
+
+
+# =============================================================================
+# Full Pipeline (Dub) Endpoint
+# =============================================================================
+
+
+async def _update_project_status(
+    project_id: str, status: str, error: str | None = None
+) -> None:
+    """
+    Update project status in Supabase database.
+
+    Args:
+        project_id: The project UUID
+        status: New status (processing, ready, error)
+        error: Optional error message
+    """
+    from supabase import create_client
+
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+
+    if not supabase_url or not supabase_key:
+        logger.warning("Supabase credentials not set, skipping status update")
+        return
+
+    try:
+        client = create_client(supabase_url, supabase_key)
+
+        update_data: dict[str, Any] = {
+            "status": status,
+            "updated_at": "now()",
+        }
+        if error:
+            update_data["error_message"] = error
+
+        client.table("dub_projects").update(update_data).eq("id", project_id).execute()
+        logger.info(f"Updated project {project_id} status to: {status}")
+    except Exception as e:
+        logger.warning(f"Failed to update project status: {e}")
+
+
+async def _upload_segment_audio(audio_path: Path, project_id: str, index: int) -> str:
+    """
+    Upload a segment audio file to Supabase storage.
+
+    Args:
+        audio_path: Path to audio file
+        project_id: Project ID for storage path
+        index: Segment index
+
+    Returns:
+        Signed URL for the uploaded file
+    """
+    from supabase import create_client
+
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+
+    if not supabase_url or not supabase_key:
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables required"
+        )
+
+    client = create_client(supabase_url, supabase_key)
+
+    bucket = "dub-audio"
+    storage_path = f"{project_id}/segments/segment_{index:04d}.wav"
+
+    with open(audio_path, "rb") as f:
+        audio_content = f.read()
+    client.storage.from_(bucket).upload(
+        path=storage_path,
+        file=audio_content,
+        file_options={"content-type": "audio/wav", "upsert": "true"},
+    )
+
+    signed_result = client.storage.from_(bucket).create_signed_url(storage_path, 3600)
+    return signed_result.get("signedURL", "")
+
+
+def _assign_speakers_to_transcription(
+    transcription_segments: list[dict[str, Any]],
+    diarization_segments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Assign speaker labels to transcription segments based on diarization.
+
+    For each transcription segment, find the diarization segment with the most
+    overlap and assign that speaker.
+
+    Args:
+        transcription_segments: List of {start, end, text} dicts
+        diarization_segments: List of {start, end, speaker} dicts
+
+    Returns:
+        List of dicts with speaker assignments added
+    """
+    result = []
+
+    for trans_seg in transcription_segments:
+        trans_start = trans_seg["start"]
+        trans_end = trans_seg["end"]
+
+        # Find overlapping diarization segments
+        best_speaker = "SPEAKER_00"  # Default
+        best_overlap = 0.0
+
+        for diar_seg in diarization_segments:
+            diar_start = diar_seg["start"]
+            diar_end = diar_seg["end"]
+
+            # Calculate overlap
+            overlap_start = max(trans_start, diar_start)
+            overlap_end = min(trans_end, diar_end)
+            overlap = max(0.0, overlap_end - overlap_start)
+
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_speaker = diar_seg["speaker"]
+
+        result.append(
+            {
+                "start": trans_start,
+                "end": trans_end,
+                "text": trans_seg["text"],
+                "speaker": best_speaker,
+            }
+        )
+
+    return result
+
+
+@app.post("/dub", response_model=DubResponse)
+async def dub(request: DubRequest) -> DubResponse:
+    """
+    Full dubbing pipeline: download → separate → diarize → transcribe → translate → synthesize → mix.
+
+    This endpoint orchestrates the complete dubbing workflow:
+    1. Download video and extract audio
+    2. Separate vocals from background
+    3. Run speaker diarization
+    4. Transcribe with Whisper
+    5. Translate text to target language
+    6. Synthesize speech with voice cloning
+    7. Mix dubbed speech with background
+
+    Args:
+        request: DubRequest with video_url, source_lang, target_lang, optional project_id
+
+    Returns:
+        DubResponse with project_id, status, URLs, and segment details
+
+    Raises:
+        HTTPException: If any pipeline step fails
+    """
+    import uuid
+
+    # Generate project ID if not provided
+    project_id = request.project_id or str(uuid.uuid4())
+
+    # Temp files to clean up
+    temp_files: list[Path] = []
+
+    try:
+        logger.info("=" * 60)
+        logger.info(f"Starting dubbing pipeline for project: {project_id}")
+        logger.info(f"Source: {request.source_lang}, Target: {request.target_lang}")
+        logger.info("=" * 60)
+
+        # Update status to processing
+        if request.project_id:
+            await _update_project_status(project_id, "processing")
+
+        # Step 1: Download video and extract audio
+        logger.info("Step 1/7: Downloading video and extracting audio...")
+        video_path = await download_video(str(request.video_url))
+        temp_files.append(video_path)
+
+        audio_path = await extract_audio_from_video(video_path)
+        temp_files.append(audio_path)
+
+        # Upload extracted audio to get a URL for other endpoints
+        from supabase import create_client
+
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+
+        if not supabase_url or not supabase_key:
+            raise HTTPException(
+                status_code=500,
+                detail="SUPABASE_URL and SUPABASE_SERVICE_KEY required",
+            )
+
+        client = create_client(supabase_url, supabase_key)
+        bucket = "dub-audio"
+
+        # Upload extracted audio
+        audio_storage_path = f"{project_id}/source_audio.wav"
+        with open(audio_path, "rb") as f:
+            audio_content = f.read()
+        client.storage.from_(bucket).upload(
+            path=audio_storage_path,
+            file=audio_content,
+            file_options={"content-type": "audio/wav", "upsert": "true"},
+        )
+        # Note: We just need the audio uploaded, not the URL (we use local file)
+        _ = client.storage.from_(bucket).create_signed_url(audio_storage_path, 3600)
+
+        logger.info("  → Audio uploaded: %s", audio_storage_path)
+
+        # Step 2: Separate vocals from background
+        logger.info("Step 2/7: Separating vocals from background...")
+        if app_state.demucs_model is None:
+            raise HTTPException(status_code=503, detail="Demucs model not loaded")
+
+        loop = asyncio.get_event_loop()
+        vocals_array, background_array, sample_rate = await loop.run_in_executor(
+            None,
+            _run_demucs_separation,
+            str(audio_path),
+        )
+
+        # Save to temp files and upload
+        import soundfile as sf
+
+        vocals_path = Path(tempfile.mktemp(suffix=".wav", prefix="vocals_"))
+        background_path = Path(tempfile.mktemp(suffix=".wav", prefix="background_"))
+        temp_files.extend([vocals_path, background_path])
+
+        sf.write(str(vocals_path), vocals_array, sample_rate)
+        sf.write(str(background_path), background_array, sample_rate)
+
+        vocals_url, background_url = await _upload_separated_audio(
+            vocals_path, background_path
+        )
+        logger.info("  → Separation complete: vocals and background uploaded")
+
+        # Upload a reference copy of vocals for voice cloning
+        vocals_storage_path = f"{project_id}/vocals.wav"
+        with open(vocals_path, "rb") as f:
+            vocals_content = f.read()
+        client.storage.from_(bucket).upload(
+            path=vocals_storage_path,
+            file=vocals_content,
+            file_options={"content-type": "audio/wav", "upsert": "true"},
+        )
+        # Note: We just need vocals uploaded for later use, not the URL
+        _ = client.storage.from_(bucket).create_signed_url(vocals_storage_path, 3600)
+
+        # Step 3: Run speaker diarization
+        logger.info("Step 3/7: Running speaker diarization...")
+        if app_state.pyannote_pipeline is None:
+            raise HTTPException(status_code=503, detail="Pyannote pipeline not loaded")
+
+        diarization_segments = await loop.run_in_executor(
+            None,
+            _run_pyannote_diarization,
+            str(audio_path),
+        )
+        unique_speakers = set(seg["speaker"] for seg in diarization_segments)
+        logger.info(
+            f"  → Diarization complete: {len(diarization_segments)} segments, "
+            f"{len(unique_speakers)} speakers"
+        )
+
+        # Step 4: Transcribe with Whisper
+        logger.info("Step 4/7: Transcribing with Whisper...")
+        if app_state.whisper_model is None:
+            raise HTTPException(status_code=503, detail="Whisper model not loaded")
+
+        transcription_data, info = await loop.run_in_executor(
+            None,
+            _run_whisper_transcription,
+            str(audio_path),
+            False,  # word_timestamps
+        )
+        logger.info(
+            f"  → Transcription complete: {len(transcription_data)} segments, "
+            f"language={info['language']}"
+        )
+
+        # Assign speakers to transcription segments
+        assigned_segments = _assign_speakers_to_transcription(
+            transcription_data, diarization_segments
+        )
+
+        # Step 5: Translate text
+        logger.info(f"Step 5/7: Translating to {request.target_lang}...")
+        if app_state.llama_model is None:
+            raise HTTPException(status_code=503, detail="LLM model not loaded")
+
+        # Prepare segments for translation
+        translation_input = [
+            {"index": i, "text": seg["text"]} for i, seg in enumerate(assigned_segments)
+        ]
+
+        # Process in batches
+        all_translations: dict[int, str] = {}
+        batch_size = TRANSLATION_MAX_SEGMENTS_PER_BATCH
+
+        for batch_start in range(0, len(translation_input), batch_size):
+            batch_end = min(batch_start + batch_size, len(translation_input))
+            batch = translation_input[batch_start:batch_end]
+            transcript_lines = [f"{seg['index']}: {seg['text']}" for seg in batch]
+
+            batch_translations = await loop.run_in_executor(
+                None,
+                _run_llama_translation,
+                transcript_lines,
+                request.target_lang,
+            )
+            all_translations.update(batch_translations)
+
+        logger.info(f"  → Translation complete: {len(all_translations)} segments")
+
+        # Step 6: Synthesize speech for each segment
+        logger.info("Step 6/7: Synthesizing dubbed speech...")
+        if app_state.chatterbox_model is None:
+            raise HTTPException(status_code=503, detail="Chatterbox model not loaded")
+
+        segment_results: list[DubSegmentResult] = []
+        synthesized_paths: list[Path] = []
+
+        for i, seg in enumerate(assigned_segments):
+            translated_text = all_translations.get(i, seg["text"])
+
+            # Skip empty translations
+            if not translated_text.strip():
+                continue
+
+            # Generate TTS
+            audio_array, tts_sample_rate = await loop.run_in_executor(
+                None,
+                _run_chatterbox_synthesis,
+                translated_text,
+                str(vocals_path),  # Use vocals as voice sample
+            )
+
+            # Save to temp file
+            segment_path = Path(
+                tempfile.mktemp(suffix=".wav", prefix=f"segment_{i:04d}_")
+            )
+            temp_files.append(segment_path)
+            sf.write(str(segment_path), audio_array, tts_sample_rate)
+            synthesized_paths.append(segment_path)
+
+            # Upload segment audio
+            segment_url = await _upload_segment_audio(segment_path, project_id, i)
+
+            segment_results.append(
+                DubSegmentResult(
+                    index=i,
+                    speaker=seg["speaker"],
+                    original_text=seg["text"],
+                    translated_text=translated_text,
+                    start_time=seg["start"],
+                    end_time=seg["end"],
+                    audio_url=segment_url,
+                )
+            )
+
+            if (i + 1) % 10 == 0:
+                logger.info(f"  → Synthesized {i + 1}/{len(assigned_segments)} segments")
+
+        logger.info(f"  → Synthesis complete: {len(segment_results)} segments")
+
+        # Step 7: Mix dubbed speech with background
+        logger.info("Step 7/7: Mixing dubbed speech with background...")
+
+        # First, combine all synthesized segments into one audio file with proper timing
+        combined_speech_path = Path(
+            tempfile.mktemp(suffix=".wav", prefix="combined_speech_")
+        )
+        temp_files.append(combined_speech_path)
+
+        # Use FFmpeg to place each segment at its correct time position
+        # Get total duration from the last segment's end time
+        if segment_results:
+            total_duration = max(seg.end_time for seg in segment_results) + 1.0
+        else:
+            total_duration = 10.0  # Fallback
+
+        # Create silent base audio of the required duration
+        silence_cmd = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"anullsrc=r=24000:cl=mono:d={total_duration}",
+            "-acodec",
+            "pcm_s16le",
+            str(combined_speech_path),
+        ]
+        process = await asyncio.create_subprocess_exec(
+            *silence_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await process.communicate()
+
+        # Overlay each segment at its start time
+        for seg_result, seg_path in zip(segment_results, synthesized_paths):
+            overlay_output = Path(
+                tempfile.mktemp(suffix=".wav", prefix="overlay_temp_")
+            )
+            temp_files.append(overlay_output)
+
+            # Use adelay filter to position the segment
+            delay_ms = int(seg_result.start_time * 1000)
+            filter_complex = f"[1:a]adelay={delay_ms}|{delay_ms}[delayed];[0:a][delayed]amix=inputs=2:duration=first:dropout_transition=0"
+
+            overlay_cmd = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(combined_speech_path),
+                "-i",
+                str(seg_path),
+                "-filter_complex",
+                filter_complex,
+                "-acodec",
+                "pcm_s16le",
+                str(overlay_output),
+            ]
+
+            process = await asyncio.create_subprocess_exec(
+                *overlay_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await process.communicate()
+
+            # Replace combined with overlay result
+            if overlay_output.exists():
+                import shutil
+
+                shutil.copy(str(overlay_output), str(combined_speech_path))
+
+        # Upload combined speech
+        speech_storage_path = f"{project_id}/dubbed_speech.wav"
+        with open(combined_speech_path, "rb") as f:
+            speech_content = f.read()
+        client.storage.from_(bucket).upload(
+            path=speech_storage_path,
+            file=speech_content,
+            file_options={"content-type": "audio/wav", "upsert": "true"},
+        )
+        # Note: We just need speech uploaded, not the URL (we mix from local file)
+        _ = client.storage.from_(bucket).create_signed_url(speech_storage_path, 3600)
+
+        # Mix with background
+        mixed_path = Path(tempfile.mktemp(suffix=".wav", prefix="final_mixed_"))
+        temp_files.append(mixed_path)
+
+        await _run_ffmpeg_mix(
+            speech_path=combined_speech_path,
+            background_path=background_path,
+            output_path=mixed_path,
+            background_volume=0.3,
+        )
+
+        # Upload final mixed audio
+        mixed_storage_path = f"{project_id}/final_dubbed.wav"
+        with open(mixed_path, "rb") as f:
+            mixed_content = f.read()
+        client.storage.from_(bucket).upload(
+            path=mixed_storage_path,
+            file=mixed_content,
+            file_options={"content-type": "audio/wav", "upsert": "true"},
+        )
+        mixed_signed = client.storage.from_(bucket).create_signed_url(
+            mixed_storage_path, 3600
+        )
+        mixed_url = mixed_signed.get("signedURL", "")
+
+        logger.info(f"  → Final mix uploaded: {mixed_storage_path}")
+
+        # Update project status to ready
+        if request.project_id:
+            await _update_project_status(project_id, "ready")
+
+        logger.info("=" * 60)
+        logger.info(f"Pipeline complete for project: {project_id}")
+        logger.info(f"Segments: {len(segment_results)}")
+        logger.info("=" * 60)
+
+        return DubResponse(
+            project_id=project_id,
+            status="ready",
+            vocals_url=vocals_url,
+            background_url=background_url,
+            mixed_url=mixed_url,
+            segments=segment_results,
+        )
+
+    except HTTPException:
+        if request.project_id:
+            await _update_project_status(project_id, "error", str("Pipeline failed"))
+        raise
+    except Exception as e:
+        logger.error(f"Dubbing pipeline failed: {e}")
+        if request.project_id:
+            await _update_project_status(project_id, "error", str(e))
+        raise HTTPException(status_code=500, detail=f"Dubbing pipeline failed: {e}")
+    finally:
+        # Clean up temp files
+        for path in temp_files:
+            if path and path.exists():
+                try:
+                    path.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temp file {path}: {e}")
