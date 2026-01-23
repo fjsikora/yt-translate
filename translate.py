@@ -30,6 +30,7 @@ import whisper
 import yt_dlp
 from deep_translator import GoogleTranslator
 from audio_processing import AudioSeparator, SpeakerDiarizer
+from lip_sync import get_media_duration
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
@@ -691,7 +692,7 @@ def mix_audio_with_background(
         Path to the mixed audio file
 
     The output duration matches the speech track. If background is shorter,
-    it's padded with silence. If background is longer, it's trimmed.
+    it's stretched to match. If background is longer, it's trimmed.
     """
     if output_path is None:
         output_path = OUTPUT_DIR / "mixed_audio.wav"
@@ -699,18 +700,49 @@ def mix_audio_with_background(
     # Clamp background volume to valid range
     background_volume = max(0.0, min(1.0, background_volume))
 
+    # Check if background needs stretching to match speech duration
+    speech_duration = get_media_duration(speech_path)
+    background_duration = get_media_duration(background_path)
+
+    bg_to_use = background_path
+    if speech_duration > background_duration * 1.02:
+        # Stretch background to match speech duration
+        stretch_factor = speech_duration / background_duration
+        atempo_value = 1 / stretch_factor  # e.g., 1.5x stretch → atempo=0.667
+
+        stretched_bg = background_path.parent / "stretched_background.wav"
+
+        # Build atempo filter chain (atempo range: 0.5-2.0)
+        # For larger stretch factors, chain multiple atempo filters
+        atempo_filters = []
+        remaining = atempo_value
+        while remaining < 0.5:
+            atempo_filters.append("atempo=0.5")
+            remaining /= 0.5
+        atempo_filters.append(f"atempo={remaining:.4f}")
+        filter_str = ",".join(atempo_filters)
+
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-i", str(background_path),
+            "-filter:a", filter_str,
+            str(stretched_bg)
+        ], capture_output=True, check=True)
+
+        bg_to_use = stretched_bg
+        print(f"  Stretched background audio: {background_duration:.1f}s → {speech_duration:.1f}s")
+
     # Use ffmpeg to mix the audio tracks
     # - First input (speech) at full volume
     # - Second input (background) at configurable volume
-    # - Output duration matches the speech track (shortest=0 with apad on background)
+    # - Output duration matches the speech track
     subprocess.run([
-        'ffmpeg',
+        'ffmpeg', '-y',
         '-i', str(speech_path),
-        '-i', str(background_path),
+        '-i', str(bg_to_use),
         '-filter_complex',
-        f'[1:a]apad,volume={background_volume}[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0',
+        f'[1:a]volume={background_volume}[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0',
         '-ac', '2',  # Stereo output
-        '-y',
         str(output_path)
     ], capture_output=True, check=True)
 
