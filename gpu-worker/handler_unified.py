@@ -135,6 +135,44 @@ class SeparateResponse(BaseModel):
 
 
 # =============================================================================
+# Translation Models
+# =============================================================================
+
+
+class TranslationSegment(BaseModel):
+    """Input segment for translation."""
+
+    index: int = Field(..., description="Segment index")
+    text: str = Field(..., description="Text to translate")
+
+
+class TranslateRequest(BaseModel):
+    """Request model for translation endpoint."""
+
+    segments: list[TranslationSegment] = Field(
+        ..., description="List of segments to translate"
+    )
+    target_language: str = Field(
+        ..., description="Target language name (e.g., 'Spanish')"
+    )
+
+
+class TranslationResult(BaseModel):
+    """Single translation result."""
+
+    index: int = Field(..., description="Original segment index")
+    text: str = Field(..., description="Translated text")
+
+
+class TranslateResponse(BaseModel):
+    """Response model for translation endpoint."""
+
+    translations: list[TranslationResult] = Field(
+        default_factory=list, description="List of translations with indices"
+    )
+
+
+# =============================================================================
 # Global State
 # =============================================================================
 
@@ -367,7 +405,7 @@ def load_llama() -> None:
     n_gpu_layers = -1 if is_cuda_available() else 0  # -1 = all layers on GPU
     logger.info(f"  → Loading Qwen3-8B from {model_path}, GPU layers: {n_gpu_layers}")
 
-    _ = Llama(
+    app_state.llama_model = Llama(
         model_path=model_path,
         n_gpu_layers=n_gpu_layers,
         n_ctx=8192,
@@ -966,3 +1004,178 @@ async def _upload_separated_audio(
     logger.info(f"Uploaded separated audio to Supabase: {job_id}")
 
     return vocals_signed.get("signedURL", ""), background_signed.get("signedURL", "")
+
+
+# =============================================================================
+# Translation Endpoint
+# =============================================================================
+
+# Translation constants
+TRANSLATION_MAX_SEGMENTS_PER_BATCH = 20
+TRANSLATION_TEMPERATURE = 0.3
+TRANSLATION_MAX_TOKENS = 4096
+
+
+@app.post("/translate", response_model=TranslateResponse)
+async def translate(request: TranslateRequest) -> TranslateResponse:
+    """
+    Translate text segments using Qwen3-8B via llama.cpp.
+
+    Accepts a list of text segments and returns translations in the target language.
+    Segments are batched (max 20 per batch) for optimal context handling.
+
+    Args:
+        request: TranslateRequest with segments list and target_language
+
+    Returns:
+        TranslateResponse with translations list containing index and translated text
+
+    Raises:
+        HTTPException: If translation fails or LLM model not loaded
+    """
+    # Check if LLM model is loaded
+    if app_state.llama_model is None:
+        raise HTTPException(
+            status_code=503,
+            detail="LLM model not loaded. Check /health for model status.",
+        )
+
+    if not request.segments:
+        return TranslateResponse(translations=[])
+
+    try:
+        logger.info(
+            f"Translating {len(request.segments)} segments to {request.target_language}"
+        )
+
+        # Process in batches
+        all_translations: dict[int, str] = {}
+
+        if len(request.segments) <= TRANSLATION_MAX_SEGMENTS_PER_BATCH:
+            # Single batch - translate all at once
+            transcript_lines = [f"{seg.index}: {seg.text}" for seg in request.segments]
+            loop = asyncio.get_event_loop()
+            batch_translations = await loop.run_in_executor(
+                None,
+                _run_llama_translation,
+                transcript_lines,
+                request.target_language,
+            )
+            all_translations = batch_translations
+            logger.info(
+                f"Translated {len(batch_translations)} segments in single batch"
+            )
+        else:
+            # Multiple batches with context overlap
+            total_batches = (
+                len(request.segments) + TRANSLATION_MAX_SEGMENTS_PER_BATCH - 1
+            ) // TRANSLATION_MAX_SEGMENTS_PER_BATCH
+            logger.info(f"Processing {total_batches} batches")
+
+            for batch_num in range(total_batches):
+                start_idx = batch_num * TRANSLATION_MAX_SEGMENTS_PER_BATCH
+                end_idx = min(
+                    start_idx + TRANSLATION_MAX_SEGMENTS_PER_BATCH,
+                    len(request.segments),
+                )
+                batch_segments = request.segments[start_idx:end_idx]
+
+                transcript_lines = [
+                    f"{seg.index}: {seg.text}" for seg in batch_segments
+                ]
+
+                loop = asyncio.get_event_loop()
+                batch_translations = await loop.run_in_executor(
+                    None,
+                    _run_llama_translation,
+                    transcript_lines,
+                    request.target_language,
+                )
+                all_translations.update(batch_translations)
+                logger.info(
+                    f"  Batch {batch_num + 1}/{total_batches}: "
+                    f"translated {len(batch_translations)} segments"
+                )
+
+        # Build response - maintain original segment order
+        translations = [
+            TranslationResult(index=seg.index, text=all_translations.get(seg.index, ""))
+            for seg in request.segments
+        ]
+
+        # Log any missing translations
+        missing = [
+            seg.index for seg in request.segments if seg.index not in all_translations
+        ]
+        if missing:
+            logger.warning(f"Missing translations for indices: {missing}")
+
+        logger.info(f"Translation complete: {len(translations)} segments")
+        return TranslateResponse(translations=translations)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Translation failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Translation failed: {e}")
+
+
+def _run_llama_translation(
+    transcript_lines: list[str], target_language: str
+) -> dict[int, str]:
+    """
+    Run LLM translation synchronously.
+
+    This function is meant to be run in a thread pool executor.
+
+    Args:
+        transcript_lines: List of "INDEX: text" formatted lines
+        target_language: Human-readable language name (e.g., "Spanish")
+
+    Returns:
+        Dict mapping segment index to translated text
+    """
+    transcript = "\n".join(transcript_lines)
+
+    prompt = f"""Translate the following numbered transcript lines to {target_language}.
+
+IMPORTANT RULES:
+1. Maintain the exact same line numbers in your output
+2. Only output the translated text, preserving the "NUMBER: text" format
+3. Keep translations natural and conversational
+4. Maintain consistent terminology throughout
+5. Preserve the speaker's tone and style
+6. Do not add any explanations or notes
+
+Transcript:
+{transcript}
+
+Translate each line to {target_language}, keeping the same numbered format:"""
+
+    # Run inference
+    output = app_state.llama_model(
+        prompt,
+        max_tokens=TRANSLATION_MAX_TOKENS,
+        temperature=TRANSLATION_TEMPERATURE,
+        stop=["</s>", "\n\n\n"],  # Stop tokens for Qwen
+    )
+
+    # Extract response text
+    response_text = output.get("choices", [{}])[0].get("text", "")
+
+    # Parse the numbered response back into translations
+    translations: dict[int, str] = {}
+    for line in response_text.strip().split("\n"):
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+
+        parts = line.split(":", 1)
+        try:
+            idx_str = parts[0].strip()
+            idx = int(idx_str)
+            translations[idx] = parts[1].strip()
+        except ValueError:
+            continue
+
+    return translations
