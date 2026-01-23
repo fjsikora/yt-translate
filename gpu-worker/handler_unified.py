@@ -135,6 +135,32 @@ class SeparateResponse(BaseModel):
 
 
 # =============================================================================
+# TTS Synthesis Models
+# =============================================================================
+
+
+class SynthesizeRequest(BaseModel):
+    """Request model for TTS synthesis endpoint."""
+
+    text: str = Field(..., description="Text to synthesize into speech")
+    voice_sample_url: HttpUrl = Field(
+        ..., description="URL of voice sample for cloning"
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speed factor (0.5 = half speed, 2.0 = double speed)",
+    )
+
+
+class SynthesizeResponse(BaseModel):
+    """Response model for TTS synthesis endpoint."""
+
+    audio_url: str = Field(..., description="Signed URL for synthesized audio file")
+
+
+# =============================================================================
 # Translation Models
 # =============================================================================
 
@@ -391,7 +417,8 @@ def load_chatterbox() -> None:
 
     device = "cuda" if is_cuda_available() else "cpu"
     logger.info(f"  → Loading Chatterbox TTS, device: {device}")
-    _ = ChatterboxTTS.from_pretrained(device=device)
+    app_state.chatterbox_model = ChatterboxTTS.from_pretrained(device=device)
+    logger.info(f"  → Chatterbox sample rate: {app_state.chatterbox_model.sr} Hz")
 
 
 def load_llama() -> None:
@@ -1179,3 +1206,225 @@ Translate each line to {target_language}, keeping the same numbered format:"""
             continue
 
     return translations
+
+
+# =============================================================================
+# TTS Synthesis Endpoint
+# =============================================================================
+
+# TTS constants
+TTS_SAMPLE_RATE = 24000  # Chatterbox native sample rate
+
+
+@app.post("/synthesize", response_model=SynthesizeResponse)
+async def synthesize(request: SynthesizeRequest) -> SynthesizeResponse:
+    """
+    Synthesize speech from text using Chatterbox TTS with voice cloning.
+
+    Accepts text and a voice sample URL for cloning, returns a signed URL
+    for the synthesized audio file. Supports speed adjustment (0.5-2.0).
+
+    Args:
+        request: SynthesizeRequest with text, voice_sample_url, and optional speed
+
+    Returns:
+        SynthesizeResponse with audio_url (Supabase signed URL)
+
+    Raises:
+        HTTPException: If synthesis fails or Chatterbox model not loaded
+    """
+    # Check if Chatterbox model is loaded
+    if app_state.chatterbox_model is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Chatterbox model not loaded. Check /health for model status.",
+        )
+
+    voice_sample_path: Path | None = None
+    output_path: Path | None = None
+    speed_adjusted_path: Path | None = None
+
+    try:
+        # Download voice sample
+        logger.info(f"Synthesizing speech: '{request.text[:50]}...'")
+        voice_sample_path = await download_audio(str(request.voice_sample_url))
+
+        # Run TTS in thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        audio_array, sample_rate = await loop.run_in_executor(
+            None,
+            _run_chatterbox_synthesis,
+            request.text,
+            str(voice_sample_path),
+        )
+
+        # Save synthesized audio to temp file
+        output_path = Path(tempfile.mktemp(suffix=".wav", prefix="tts_"))
+
+        import soundfile as sf
+
+        sf.write(str(output_path), audio_array, sample_rate)
+
+        logger.info(f"Synthesis complete: {len(audio_array) / sample_rate:.1f}s audio")
+
+        # Apply speed adjustment if needed
+        final_path = output_path
+        if request.speed != 1.0:
+            speed_adjusted_path = Path(
+                tempfile.mktemp(suffix=".wav", prefix="tts_speed_")
+            )
+            await _apply_speed_adjustment(
+                output_path, speed_adjusted_path, request.speed
+            )
+            final_path = speed_adjusted_path
+            logger.info(f"Applied speed factor: {request.speed}x")
+
+        # Upload to Supabase storage
+        audio_url = await _upload_synthesized_audio(final_path)
+
+        return SynthesizeResponse(audio_url=audio_url)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"TTS synthesis failed: {e}")
+        raise HTTPException(status_code=500, detail=f"TTS synthesis failed: {e}")
+    finally:
+        # Clean up temp files
+        for path in [voice_sample_path, output_path, speed_adjusted_path]:
+            if path and path.exists():
+                try:
+                    path.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temp file: {e}")
+
+
+def _run_chatterbox_synthesis(text: str, voice_sample_path: str) -> tuple[Any, int]:
+    """
+    Run Chatterbox TTS synthesis synchronously.
+
+    This function is meant to be run in a thread pool executor.
+
+    Args:
+        text: Text to synthesize
+        voice_sample_path: Path to voice sample for cloning
+
+    Returns:
+        Tuple of (audio_array as numpy, sample_rate)
+    """
+    import numpy as np
+    import torch
+
+    model = app_state.chatterbox_model
+
+    # Generate audio with voice cloning
+    wav = model.generate(
+        text,
+        audio_prompt_path=voice_sample_path,
+    )
+
+    # Convert tensor to numpy array
+    if torch.is_tensor(wav):
+        audio_np = wav.squeeze().cpu().numpy()
+    else:
+        audio_np = np.array(wav).squeeze()
+
+    # Normalize to prevent clipping
+    max_val = np.max(np.abs(audio_np))
+    if max_val > 0.99:
+        audio_np = audio_np * 0.99 / max_val
+
+    # Clean up GPU memory
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    return audio_np, model.sr
+
+
+async def _apply_speed_adjustment(
+    input_path: Path, output_path: Path, speed: float
+) -> None:
+    """
+    Apply speed adjustment to audio using FFmpeg.
+
+    Uses the atempo filter which preserves pitch while changing speed.
+    FFmpeg's atempo only supports 0.5-2.0 range per filter instance.
+
+    Args:
+        input_path: Path to input audio file
+        output_path: Path for output audio file
+        speed: Speed factor (0.5 = half speed, 2.0 = double speed)
+    """
+    # FFmpeg atempo filter accepts values between 0.5 and 2.0
+    # For our use case, this range is sufficient
+    atempo_value = max(0.5, min(2.0, speed))
+
+    cmd = [
+        "ffmpeg",
+        "-y",  # Overwrite output
+        "-i",
+        str(input_path),
+        "-filter:a",
+        f"atempo={atempo_value}",
+        "-acodec",
+        "pcm_s16le",  # WAV format
+        str(output_path),
+    ]
+
+    # Run FFmpeg
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        raise RuntimeError(f"FFmpeg speed adjustment failed: {stderr.decode()}")
+
+
+async def _upload_synthesized_audio(audio_path: Path) -> str:
+    """
+    Upload synthesized audio to Supabase storage.
+
+    Args:
+        audio_path: Path to audio file to upload
+
+    Returns:
+        Signed URL for the uploaded audio file
+    """
+    import uuid
+
+    from supabase import create_client
+
+    # Get Supabase credentials from environment
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+
+    if not supabase_url or not supabase_key:
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables required"
+        )
+
+    client = create_client(supabase_url, supabase_key)
+
+    # Generate unique path for storage
+    job_id = str(uuid.uuid4())
+    bucket = "dub-audio"  # Bucket for dubbing audio files
+    storage_path = f"{job_id}/synthesized.wav"
+
+    # Upload audio
+    with open(audio_path, "rb") as f:
+        audio_content = f.read()
+    client.storage.from_(bucket).upload(
+        path=storage_path,
+        file=audio_content,
+        file_options={"content-type": "audio/wav", "upsert": "true"},
+    )
+
+    # Get signed URL (1 hour expiry)
+    signed_result = client.storage.from_(bucket).create_signed_url(storage_path, 3600)
+
+    logger.info(f"Uploaded synthesized audio to Supabase: {job_id}")
+
+    return signed_result.get("signedURL", "")
