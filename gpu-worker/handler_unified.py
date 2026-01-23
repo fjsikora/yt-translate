@@ -90,6 +90,33 @@ class TranscribeResponse(BaseModel):
 
 
 # =============================================================================
+# Diarization Models
+# =============================================================================
+
+
+class DiarizeRequest(BaseModel):
+    """Request model for speaker diarization endpoint."""
+
+    audio_url: HttpUrl = Field(..., description="URL of audio file to diarize")
+
+
+class DiarizationSegment(BaseModel):
+    """A single speaker diarization segment."""
+
+    start: float = Field(..., description="Start time in seconds")
+    end: float = Field(..., description="End time in seconds")
+    speaker: str = Field(..., description="Speaker label (e.g., SPEAKER_00)")
+
+
+class DiarizeResponse(BaseModel):
+    """Response model for speaker diarization endpoint."""
+
+    segments: list[DiarizationSegment] = Field(
+        default_factory=list, description="List of speaker segments"
+    )
+
+
+# =============================================================================
 # Global State
 # =============================================================================
 
@@ -279,9 +306,18 @@ def load_pyannote() -> None:
     from pyannote.audio import Pipeline
 
     logger.info("  → Loading pyannote speaker-diarization-3.1 pipeline")
-    _ = Pipeline.from_pretrained(
+    pipeline = Pipeline.from_pretrained(
         "pyannote/speaker-diarization-3.1", use_auth_token=hf_token
     )
+
+    # Move to GPU if available
+    if is_cuda_available():
+        import torch
+
+        pipeline.to(torch.device("cuda"))
+        logger.info("  → Pyannote pipeline moved to GPU")
+
+    app_state.pyannote_pipeline = pipeline
 
 
 def load_chatterbox() -> None:
@@ -561,3 +597,115 @@ def _run_whisper_transcription(
         segments_list.append(segment_data)
 
     return segments_list, {"language": info.language, "duration": info.duration}
+
+
+@app.post("/diarize", response_model=DiarizeResponse)
+async def diarize(request: DiarizeRequest) -> DiarizeResponse:
+    """
+    Perform speaker diarization on audio file using pyannote.audio.
+
+    Identifies different speakers in the audio and returns timestamped segments
+    with speaker labels. Handles overlapping speech by assigning the most
+    prominent speaker to each time window.
+
+    Args:
+        request: DiarizeRequest with audio_url
+
+    Returns:
+        DiarizeResponse with segments containing start, end, and speaker label
+
+    Raises:
+        HTTPException: If diarization fails or pyannote pipeline not loaded
+    """
+    # Check if pyannote pipeline is loaded
+    if app_state.pyannote_pipeline is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Pyannote pipeline not loaded. Check /health for model status.",
+        )
+
+    temp_file: Path | None = None
+
+    try:
+        # Download audio from URL
+        logger.info(f"Diarizing audio from: {request.audio_url}")
+        temp_file = await download_audio(str(request.audio_url))
+
+        # Run diarization in thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        segments_data = await loop.run_in_executor(
+            None,
+            _run_pyannote_diarization,
+            str(temp_file),
+        )
+
+        # Build response
+        segments = [
+            DiarizationSegment(
+                start=seg["start"], end=seg["end"], speaker=seg["speaker"]
+            )
+            for seg in segments_data
+        ]
+
+        # Count unique speakers
+        unique_speakers = set(seg["speaker"] for seg in segments_data)
+        logger.info(
+            f"Diarization complete: {len(segments)} segments, "
+            f"{len(unique_speakers)} speakers detected"
+        )
+
+        return DiarizeResponse(segments=segments)
+
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.error(f"Diarization failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Diarization failed: {e}")
+    finally:
+        # Clean up temp file
+        if temp_file and temp_file.exists():
+            try:
+                temp_file.unlink()
+            except Exception as e:
+                logger.warning(f"Failed to clean up temp file: {e}")
+
+
+def _run_pyannote_diarization(audio_path: str) -> list[dict[str, Any]]:
+    """
+    Run pyannote diarization synchronously.
+
+    This function is meant to be run in a thread pool executor.
+
+    Args:
+        audio_path: Path to the audio file
+
+    Returns:
+        List of segment dicts with 'start', 'end', 'speaker' keys
+    """
+    # Run diarization (pyannote 3.x returns DiarizeOutput dataclass)
+    output = app_state.pyannote_pipeline(audio_path)
+
+    # Handle different pyannote output formats
+    # pyannote 3.x returns DiarizeOutput with speaker_diarization attribute
+    # pyannote 2.x returns Annotation directly
+    if hasattr(output, "speaker_diarization"):
+        diarization = output.speaker_diarization
+    else:
+        diarization = output
+
+    # Convert to list of segments
+    segments_list: list[dict[str, Any]] = []
+    for turn, _, speaker in diarization.itertracks(yield_label=True):
+        segments_list.append(
+            {
+                "start": round(turn.start, 3),
+                "end": round(turn.end, 3),
+                "speaker": speaker,
+            }
+        )
+
+    # Sort by start time to ensure chronological order
+    segments_list.sort(key=lambda x: x["start"])
+
+    return segments_list
