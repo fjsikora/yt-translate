@@ -1,101 +1,111 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useState, useEffect } from "react";
+import { ProjectCard } from "@/components/ProjectCard";
+import { NewProjectDialog } from "@/components/NewProjectDialog";
+import { Project } from "@/types/project";
+import { Film } from "lucide-react";
+
+// Mock data for development - will be replaced with API call once US-013 is complete
+const MOCK_PROJECTS: Project[] = [
+  {
+    id: "1",
+    name: "Product Demo Video",
+    status: "ready",
+    source_language: "en",
+    target_language: "es",
+    created_at: "2026-01-20T10:30:00Z",
+    updated_at: "2026-01-21T14:45:00Z",
+  },
+  {
+    id: "2",
+    name: "Marketing Webinar",
+    status: "processing",
+    source_language: "en",
+    target_language: "fr",
+    created_at: "2026-01-22T09:00:00Z",
+    updated_at: "2026-01-22T09:15:00Z",
+  },
+  {
+    id: "3",
+    name: "Tutorial Series Episode 1",
+    status: "pending",
+    source_language: "en",
+    target_language: "de",
+    created_at: "2026-01-23T08:00:00Z",
+    updated_at: "2026-01-23T08:00:00Z",
+  },
+];
+
+export default function HomePage() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchProjects = async () => {
+    setIsLoading(true);
+    try {
+      // TODO: Replace with actual API call once US-013 is complete
+      // const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/projects`);
+      // const data = await response.json();
+      // setProjects(data);
+
+      // For now, use mock data
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      setProjects(MOCK_PROJECTS);
+    } catch (error) {
+      console.error("Failed to fetch projects:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProjects();
+  }, []);
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="min-h-screen bg-background">
+      <header className="border-b">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Film className="h-6 w-6" />
+              <h1 className="text-xl font-bold">Dubbing Studio</h1>
+            </div>
+            <NewProjectDialog onProjectCreated={fetchProjects} />
+          </div>
         </div>
+      </header>
+
+      <main className="container mx-auto px-4 py-8">
+        <h2 className="mb-6 text-2xl font-semibold">Your Projects</h2>
+
+        {isLoading ? (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="h-[140px] animate-pulse rounded-xl border bg-muted"
+              />
+            ))}
+          </div>
+        ) : projects.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed p-12 text-center">
+            <Film className="mb-4 h-12 w-12 text-muted-foreground" />
+            <h3 className="mb-2 text-lg font-medium">No projects yet</h3>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Get started by creating your first dubbing project.
+            </p>
+            <NewProjectDialog onProjectCreated={fetchProjects} />
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {projects.map((project) => (
+              <ProjectCard key={project.id} project={project} />
+            ))}
+          </div>
+        )}
       </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
     </div>
   );
 }
