@@ -22,6 +22,7 @@ wheels/
 
 # Virtual environments
 .venv/
+.venv-cloud/
 venv/
 ENV/
 
@@ -35,6 +36,10 @@ ENV/
 .env
 .env.local
 .env.*.local
+
+# Cookie files (sensitive)
+*_cookies.txt
+*.cookies.txt
 
 # Output files
 output/

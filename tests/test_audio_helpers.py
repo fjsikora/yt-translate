@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from utils.audio_helpers import read_wav_file, resample_audio, write_wav_file
+from yt_translate.utils.audio_helpers import read_wav_file, resample_audio, write_wav_file
 
 
 class TestReadWavFile:

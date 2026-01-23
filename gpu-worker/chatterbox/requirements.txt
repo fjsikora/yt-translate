@@ -1,9 +1,0 @@
-# Chatterbox Worker Dependencies
-# Chatterbox TTS for multilingual voice cloning
-
-self-hosted>=1.7.0
-torch>=2.0.0
-torchaudio>=2.0.0
-soundfile>=0.12.0
-numpy<1.26.0
-chatterbox-tts>=0.1.6

@@ -14,13 +14,13 @@ from typing import Callable, Optional
 
 from deep_translator import GoogleTranslator
 
-from config import (
+from yt_translate.config.constants import (
     LLM_MAX_SEGMENTS_PER_BATCH,
     LLM_BATCH_OVERLAP,
     LLM_MAX_TOKENS,
     LLM_TEMPERATURE,
 )
-from languages import GOOGLE_LANG_CODES_BY_NAME as GOOGLE_LANG_CODES
+from yt_translate.config.languages import GOOGLE_LANG_CODES_BY_NAME as GOOGLE_LANG_CODES
 
 logger = logging.getLogger(__name__)
 

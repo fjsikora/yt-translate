@@ -1,6 +1,0 @@
-# llama.cpp Worker Dependencies
-# GGUF model inference with llama-cpp-python
-
-self-hosted>=1.7.0
-llama-cpp-python>=0.2.0
-huggingface_hub>=0.20.0

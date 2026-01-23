@@ -6,7 +6,7 @@ Verifies that language mappings are complete, consistent, and use valid ISO code
 
 import pytest
 
-from languages import (
+from yt_translate.config.languages import (
     GOOGLE_LANG_CODES,
     ISO_639_1_TO_639_2,
     LANG_NAMES,
