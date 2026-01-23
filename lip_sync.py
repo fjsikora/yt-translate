@@ -83,14 +83,17 @@ def stretch_video(
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Use setpts filter to stretch video
-    # Drop audio since we're replacing it with translated audio anyway
-    # -r 30 forces re-encoding at correct framerate (otherwise video freezes on last frame)
+    # Use setpts filter to stretch video with proper re-encoding
+    # Must use explicit codec (libx264) to force full re-encoding
+    # Without this, ffmpeg only changes timestamps and video freezes at original end
     cmd = [
         "ffmpeg", "-y",
         "-i", str(input_path),
-        "-filter:v", f"setpts={stretch_factor}*PTS",
-        "-r", "30",
+        "-vf", f"setpts={stretch_factor}*PTS",
+        "-c:v", "libx264",
+        "-crf", "23",
+        "-preset", "medium",
+        "-pix_fmt", "yuv420p",
         "-an",  # No audio
         str(output_path)
     ]
