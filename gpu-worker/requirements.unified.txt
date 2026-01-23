@@ -39,8 +39,21 @@ pyannote.audio==3.3.2
 # =============================================================================
 # Text-to-Speech (Chatterbox)
 # =============================================================================
-chatterbox-tts==0.1.6
+# NOTE: chatterbox-tts is installed separately with --no-deps in Dockerfile
+# because it pins torch==2.6.0 which breaks pyannote
+# Below are chatterbox dependencies (excluding torch/torchaudio)
 soundfile>=0.12.0
+librosa==0.11.0
+s3tokenizer
+transformers==4.46.3
+diffusers==0.29.0
+resemble-perth==1.0.1
+conformer==0.3.2
+safetensors==0.5.3
+spacy-pkuseg
+pykakasi==2.3.0
+pyloudnorm
+omegaconf
 # Note: chatterbox-tts requires numpy<1.26.0
 
 # =============================================================================

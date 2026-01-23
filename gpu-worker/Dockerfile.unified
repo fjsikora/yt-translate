@@ -87,6 +87,10 @@ RUN pip install --no-cache-dir llama-cpp-python>=0.2.0 \
 COPY self-hosted/requirements.unified.txt /app/requirements.unified.txt
 RUN pip install --no-cache-dir -r /app/requirements.unified.txt
 
+# Install chatterbox-tts with --no-deps to bypass torch==2.6.0 pin
+# (chatterbox works fine with PyTorch 2.5.1, the strict pin is overly cautious)
+RUN pip install --no-cache-dir --no-deps chatterbox-tts==0.1.6
+
 # ============================================================================
 # Model Downloads (Build Time)
 # ============================================================================
