@@ -1,0 +1,76 @@
+# Unified Self-hosted GPU Worker Requirements
+# Combined dependencies for all AI models in single image
+# All versions pinned for reproducibility
+#
+# Estimated model storage requirements:
+# - Whisper large-v3: ~3GB
+# - Demucs htdemucs: ~0.5GB
+# - pyannote.audio: ~0.3GB
+# - Chatterbox TTS: ~2GB
+# - Qwen3-8B GGUF: ~5GB (Q4_K_M quantization)
+# Total models: ~11GB
+
+# =============================================================================
+# Core ML Frameworks (CUDA 12.4 compatible)
+# =============================================================================
+torch==2.5.1
+torchaudio==2.5.1
+# Note: Using 2.5.1 for compatibility across all models
+
+# =============================================================================
+# Speech-to-Text (Whisper)
+# =============================================================================
+openai-whisper==20240930
+# Includes tiktoken, numba, etc.
+
+# =============================================================================
+# Audio Source Separation (Demucs)
+# =============================================================================
+demucs==4.0.1
+# Uses torch.hub for model loading
+
+# =============================================================================
+# Speaker Diarization (pyannote.audio)
+# =============================================================================
+pyannote.audio==3.3.2
+# Requires HuggingFace token for model access
+
+# =============================================================================
+# Text-to-Speech (Chatterbox)
+# =============================================================================
+chatterbox-tts==0.1.6
+soundfile>=0.12.0
+# Note: chatterbox-tts requires numpy<1.26.0
+
+# =============================================================================
+# LLM Translation (Qwen via llama.cpp)
+# =============================================================================
+llama-cpp-python>=0.2.0
+# Note: Will be installed with CUDA support from custom index
+
+# =============================================================================
+# Shared Dependencies
+# =============================================================================
+huggingface_hub>=0.20.0
+numpy<1.26.0
+
+# =============================================================================
+# API & Infrastructure
+# =============================================================================
+self-hosted>=1.7.4
+fastapi>=0.109.0
+uvicorn>=0.27.0
+pydantic>=2.0.0
+
+# =============================================================================
+# Storage & HTTP
+# =============================================================================
+supabase>=2.11.0
+httpx>=0.27.0
+
+# =============================================================================
+# Utilities
+# =============================================================================
+python-dotenv>=1.0.1
+scipy>=1.14.0
+psutil>=5.9.0
