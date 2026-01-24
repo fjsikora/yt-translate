@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/tooltip";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Timeline, TimelineTrack, TimelineSegment } from "@/components/editor/Timeline";
+import { VideoPlayer, VideoPlayerRef } from "@/components/editor/VideoPlayer";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -60,7 +61,7 @@ export default function EditorPage({ params }: EditorPageProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoPlayerRef = useRef<VideoPlayerRef>(null);
 
   // Timeline state
   const [zoom, setZoom] = useState(1);
@@ -111,35 +112,26 @@ export default function EditorPage({ params }: EditorPageProps) {
     }
   }, [projectId, fetchProject]);
 
-  // Video sync
-  const handleTimeUpdate = () => {
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
-    }
-  };
+  // Video player handlers
+  const handleTimeUpdate = useCallback((time: number) => {
+    setCurrentTime(time);
+  }, []);
 
-  const handleLoadedMetadata = () => {
-    if (videoRef.current) {
-      setDuration(videoRef.current.duration);
-    }
-  };
+  const handleDurationChange = useCallback((newDuration: number) => {
+    setDuration(newDuration);
+  }, []);
 
-  const handlePlayPause = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-    }
-  };
+  const handlePlayStateChange = useCallback((playing: boolean) => {
+    setIsPlaying(playing);
+  }, []);
+
+  const handlePlayPause = useCallback(() => {
+    videoPlayerRef.current?.togglePlayback();
+  }, []);
 
   const handleSeek = useCallback((time: number) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = time;
-      setCurrentTime(time);
-    }
+    videoPlayerRef.current?.seek(time);
+    setCurrentTime(time);
   }, []);
 
   // Zoom controls
@@ -463,20 +455,16 @@ export default function EditorPage({ params }: EditorPageProps) {
           <div className="flex flex-1 flex-col">
             {/* Video Player (50% height) */}
             <div className="flex h-1/2 items-center justify-center border-b bg-black">
-              {project.video_url ? (
-                <video
-                  ref={videoRef}
-                  className="h-full w-full object-contain"
-                  src={project.video_url}
-                  onTimeUpdate={handleTimeUpdate}
-                  onLoadedMetadata={handleLoadedMetadata}
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
-                  onEnded={() => setIsPlaying(false)}
-                />
-              ) : (
-                <div className="text-muted-foreground">No video available</div>
-              )}
+              <VideoPlayer
+                ref={videoPlayerRef}
+                src={project.video_url}
+                isPlaying={isPlaying}
+                currentTime={currentTime}
+                onTimeUpdate={handleTimeUpdate}
+                onDurationChange={handleDurationChange}
+                onPlayStateChange={handlePlayStateChange}
+                className="h-full w-full"
+              />
             </div>
 
             {/* Timeline Editor (50% height) - Using Twick Timeline */}
