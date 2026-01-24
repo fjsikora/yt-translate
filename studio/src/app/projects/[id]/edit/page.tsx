@@ -26,6 +26,8 @@ import {
   Volume2,
   VolumeX,
   AlertCircle,
+  Loader2,
+  Check,
 } from "lucide-react";
 
 // Types
@@ -72,6 +74,12 @@ export default function EditorPage({ params }: EditorPageProps) {
 
   // Export dialog state
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+
+  // Autosave state
+  type SaveStatus = "idle" | "saving" | "saved" | "error";
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const saveStatusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingSavesRef = useRef<number>(0);
 
   // Resolve params promise
   useEffect(() => {
@@ -149,9 +157,58 @@ export default function EditorPage({ params }: EditorPageProps) {
     setZoom(newZoom);
   }, []);
 
+  // Helper to manage save status transitions
+  const startSave = useCallback(() => {
+    pendingSavesRef.current += 1;
+    setSaveStatus("saving");
+    // Clear any existing timeout that would transition to "idle"
+    if (saveStatusTimeoutRef.current) {
+      clearTimeout(saveStatusTimeoutRef.current);
+      saveStatusTimeoutRef.current = null;
+    }
+  }, []);
+
+  const completeSave = useCallback((success: boolean) => {
+    pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1);
+
+    // Only update status if no more pending saves
+    if (pendingSavesRef.current === 0) {
+      if (success) {
+        setSaveStatus("saved");
+        // Clear existing timeout
+        if (saveStatusTimeoutRef.current) {
+          clearTimeout(saveStatusTimeoutRef.current);
+        }
+        // Reset to idle after 2 seconds
+        saveStatusTimeoutRef.current = setTimeout(() => {
+          setSaveStatus("idle");
+        }, 2000);
+      } else {
+        setSaveStatus("error");
+        // Reset to idle after 3 seconds for errors
+        if (saveStatusTimeoutRef.current) {
+          clearTimeout(saveStatusTimeoutRef.current);
+        }
+        saveStatusTimeoutRef.current = setTimeout(() => {
+          setSaveStatus("idle");
+        }, 3000);
+      }
+    }
+  }, []);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveStatusTimeoutRef.current) {
+        clearTimeout(saveStatusTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Save track settings to API
   const saveTrackSettings = useCallback(
     async (trackId: string, settings: { muted?: boolean; solo?: boolean; volume?: number }) => {
+      startSave();
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL;
         const response = await fetch(`${apiUrl}/api/tracks/${trackId}`, {
@@ -168,12 +225,14 @@ export default function EditorPage({ params }: EditorPageProps) {
             errorData.detail || `Failed to save track: ${response.statusText}`
           );
         }
+        completeSave(true);
       } catch (err) {
         console.error("Failed to save track:", err);
         setError(err instanceof Error ? err.message : "Failed to save track");
+        completeSave(false);
       }
     },
-    []
+    [startSave, completeSave]
   );
 
   // Track controls
@@ -295,6 +354,7 @@ export default function EditorPage({ params }: EditorPageProps) {
   // Save segment timing to API (shared by drag-drop and trim operations)
   const saveSegmentTiming = useCallback(
     async (segmentId: string, startTime: number, endTime: number, speedFactor?: number) => {
+      startSave();
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL;
         const body: Record<string, number> = {
@@ -319,13 +379,15 @@ export default function EditorPage({ params }: EditorPageProps) {
             errorData.detail || `Failed to save segment: ${response.statusText}`
           );
         }
+        completeSave(true);
       } catch (err) {
         console.error("Failed to save segment:", err);
         setError(err instanceof Error ? err.message : "Failed to save segment");
+        completeSave(false);
         // Note: We don't revert since the user can undo manually
       }
     },
-    []
+    [startSave, completeSave]
   );
 
   // Handle segment drop (after drag-and-drop repositioning)
@@ -517,6 +579,25 @@ export default function EditorPage({ params }: EditorPageProps) {
             <div className="flex items-center gap-2">
               <span className="font-medium">{project.name}</span>
               <StatusBadge status={project.status as "ready" | "pending" | "processing" | "error" | "exported" | "exporting"} />
+              {/* Autosave status indicator */}
+              {saveStatus === "saving" && (
+                <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Saving...</span>
+                </div>
+              )}
+              {saveStatus === "saved" && (
+                <div className="flex items-center gap-1 text-sm text-green-600">
+                  <Check className="h-3 w-3" />
+                  <span>Saved</span>
+                </div>
+              )}
+              {saveStatus === "error" && (
+                <div className="flex items-center gap-1 text-sm text-destructive">
+                  <AlertCircle className="h-3 w-3" />
+                  <span>Save failed</span>
+                </div>
+              )}
             </div>
           </div>
 
