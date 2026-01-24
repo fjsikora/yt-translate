@@ -211,25 +211,9 @@ export default function EditorPage({ params }: EditorPageProps) {
     }
   }, [tracks]);
 
-  // Handle segment drop (after drag-and-drop)
-  const handleSegmentDrop = useCallback(
+  // Save segment timing to API (shared by drag-drop and trim operations)
+  const saveSegmentTiming = useCallback(
     async (segmentId: string, startTime: number, endTime: number) => {
-      // Push current state to history before making changes
-      pushHistory();
-
-      // Update local state immediately for responsive UI
-      setTracks((prev) =>
-        prev.map((track) => ({
-          ...track,
-          segments: track.segments.map((segment) =>
-            segment.id === segmentId
-              ? { ...segment, start_time: startTime, end_time: endTime }
-              : segment
-          ),
-        }))
-      );
-
-      // Save to API
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL;
         const response = await fetch(`${apiUrl}/api/segments/${segmentId}`, {
@@ -255,7 +239,55 @@ export default function EditorPage({ params }: EditorPageProps) {
         // Note: We don't revert since the user can undo manually
       }
     },
-    [pushHistory]
+    []
+  );
+
+  // Handle segment drop (after drag-and-drop repositioning)
+  const handleSegmentDrop = useCallback(
+    async (segmentId: string, startTime: number, endTime: number) => {
+      // Push current state to history before making changes
+      pushHistory();
+
+      // Update local state immediately for responsive UI
+      setTracks((prev) =>
+        prev.map((track) => ({
+          ...track,
+          segments: track.segments.map((segment) =>
+            segment.id === segmentId
+              ? { ...segment, start_time: startTime, end_time: endTime }
+              : segment
+          ),
+        }))
+      );
+
+      // Save to API
+      await saveSegmentTiming(segmentId, startTime, endTime);
+    },
+    [pushHistory, saveSegmentTiming]
+  );
+
+  // Handle segment trim (after edge resizing)
+  const handleSegmentTrim = useCallback(
+    async (segmentId: string, startTime: number, endTime: number) => {
+      // Push current state to history before making changes
+      pushHistory();
+
+      // Update local state immediately for responsive UI
+      setTracks((prev) =>
+        prev.map((track) => ({
+          ...track,
+          segments: track.segments.map((segment) =>
+            segment.id === segmentId
+              ? { ...segment, start_time: startTime, end_time: endTime }
+              : segment
+          ),
+        }))
+      );
+
+      // Save to API
+      await saveSegmentTiming(segmentId, startTime, endTime);
+    },
+    [pushHistory, saveSegmentTiming]
   );
 
   // Undo handler
@@ -615,6 +647,7 @@ export default function EditorPage({ params }: EditorPageProps) {
                 onZoomChange={handleZoomChange}
                 onSegmentSelect={handleSegmentSelect}
                 onSegmentDrop={handleSegmentDrop}
+                onSegmentTrim={handleSegmentTrim}
                 selectedSegmentId={selectedSegmentId}
               />
             </div>

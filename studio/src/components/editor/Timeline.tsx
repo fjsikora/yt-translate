@@ -32,7 +32,7 @@ export interface TimelineTrack {
   segments: TimelineSegment[];
 }
 
-// Drag state interface
+// Drag state interface for segment repositioning
 interface DragState {
   segmentId: string;
   trackId: string;
@@ -41,6 +41,20 @@ interface DragState {
   dragStartX: number;
   currentOffset: number;
 }
+
+// Trim state interface for segment edge resizing
+interface TrimState {
+  segmentId: string;
+  trackId: string;
+  edge: "left" | "right";
+  initialStartTime: number;
+  initialEndTime: number;
+  trimStartX: number;
+  currentTimeDelta: number;
+}
+
+// Minimum segment duration in seconds
+const MIN_SEGMENT_DURATION = 0.1;
 
 interface TimelineProps {
   tracks: TimelineTrack[];
@@ -51,6 +65,7 @@ interface TimelineProps {
   onZoomChange: (zoom: number) => void;
   onSegmentSelect?: (segment: TimelineSegment | null) => void;
   onSegmentDrop?: (segmentId: string, startTime: number, endTime: number) => void;
+  onSegmentTrim?: (segmentId: string, startTime: number, endTime: number) => void;
   selectedSegmentId?: string | null;
 }
 
@@ -114,6 +129,7 @@ function TimelineInner({
   onZoomChange,
   onSegmentSelect,
   onSegmentDrop,
+  onSegmentTrim,
   selectedSegmentId,
 }: TimelineProps) {
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -128,6 +144,10 @@ function TimelineInner({
   // Drag state for segment repositioning
   const [dragState, setDragState] = useState<DragState | null>(null);
   const isDragging = dragState !== null;
+
+  // Trim state for segment edge resizing
+  const [trimState, setTrimState] = useState<TrimState | null>(null);
+  const isTrimming = trimState !== null;
 
   // Handle scroll wheel zoom
   const handleWheel = useCallback(
@@ -242,6 +262,111 @@ function TimelineInner({
       };
     }
   }, [isDragging, handleMouseMove, handleMouseUp]);
+
+  // Handle trim start (edge resize)
+  const handleTrimStart = useCallback(
+    (e: React.MouseEvent, segment: TimelineSegment, edge: "left" | "right") => {
+      e.stopPropagation();
+      e.preventDefault();
+
+      setTrimState({
+        segmentId: segment.id,
+        trackId: segment.track_id,
+        edge,
+        initialStartTime: segment.start_time,
+        initialEndTime: segment.end_time,
+        trimStartX: e.clientX,
+        currentTimeDelta: 0,
+      });
+
+      // Select the segment being trimmed
+      onSegmentSelect?.(segment);
+    },
+    [onSegmentSelect]
+  );
+
+  // Handle mouse move during trim
+  const handleTrimMove = useCallback(
+    (e: MouseEvent) => {
+      if (!trimState) return;
+
+      const deltaX = e.clientX - trimState.trimStartX;
+      const timeDelta = deltaX / pixelsPerSecond;
+
+      // Calculate new times based on which edge is being dragged
+      let newStartTime = trimState.initialStartTime;
+      let newEndTime = trimState.initialEndTime;
+
+      if (trimState.edge === "left") {
+        // Dragging left edge changes start_time
+        newStartTime = trimState.initialStartTime + timeDelta;
+        // Clamp: can't go below 0 and can't make segment shorter than MIN_SEGMENT_DURATION
+        newStartTime = Math.max(0, newStartTime);
+        newStartTime = Math.min(newStartTime, trimState.initialEndTime - MIN_SEGMENT_DURATION);
+      } else {
+        // Dragging right edge changes end_time
+        newEndTime = trimState.initialEndTime + timeDelta;
+        // Clamp: can't exceed duration and can't make segment shorter than MIN_SEGMENT_DURATION
+        newEndTime = Math.min(duration, newEndTime);
+        newEndTime = Math.max(newEndTime, trimState.initialStartTime + MIN_SEGMENT_DURATION);
+      }
+
+      // Calculate actual delta from initial values
+      const actualDelta = trimState.edge === "left"
+        ? newStartTime - trimState.initialStartTime
+        : newEndTime - trimState.initialEndTime;
+
+      setTrimState((prev) =>
+        prev ? { ...prev, currentTimeDelta: actualDelta } : null
+      );
+    },
+    [trimState, pixelsPerSecond, duration]
+  );
+
+  // Handle mouse up to finish trim
+  const handleTrimEnd = useCallback(() => {
+    if (!trimState) return;
+
+    let newStartTime = trimState.initialStartTime;
+    let newEndTime = trimState.initialEndTime;
+
+    if (trimState.edge === "left") {
+      newStartTime = trimState.initialStartTime + trimState.currentTimeDelta;
+      // Final clamp
+      newStartTime = Math.max(0, newStartTime);
+      newStartTime = Math.min(newStartTime, trimState.initialEndTime - MIN_SEGMENT_DURATION);
+    } else {
+      newEndTime = trimState.initialEndTime + trimState.currentTimeDelta;
+      // Final clamp
+      newEndTime = Math.min(duration, newEndTime);
+      newEndTime = Math.max(newEndTime, trimState.initialStartTime + MIN_SEGMENT_DURATION);
+    }
+
+    // Only trigger callback if timing actually changed
+    if (Math.abs(trimState.currentTimeDelta) > 0.01) {
+      // Use onSegmentTrim if provided, otherwise fall back to onSegmentDrop
+      if (onSegmentTrim) {
+        onSegmentTrim(trimState.segmentId, newStartTime, newEndTime);
+      } else if (onSegmentDrop) {
+        onSegmentDrop(trimState.segmentId, newStartTime, newEndTime);
+      }
+    }
+
+    setTrimState(null);
+  }, [trimState, duration, onSegmentTrim, onSegmentDrop]);
+
+  // Attach trim event listeners
+  useEffect(() => {
+    if (isTrimming) {
+      window.addEventListener("mousemove", handleTrimMove);
+      window.addEventListener("mouseup", handleTrimEnd);
+
+      return () => {
+        window.removeEventListener("mousemove", handleTrimMove);
+        window.removeEventListener("mouseup", handleTrimEnd);
+      };
+    }
+  }, [isTrimming, handleTrimMove, handleTrimEnd]);
 
   // Handle click on timeline to seek
   const handleTimelineClick = (e: React.MouseEvent) => {
@@ -360,41 +485,113 @@ function TimelineInner({
                 {track.segments.map((segment) => {
                   const isSelected = selectedSegmentId === segment.id;
                   const isBeingDragged = dragState?.segmentId === segment.id;
-                  const segmentWidth =
-                    (segment.end_time - segment.start_time) * pixelsPerSecond;
+                  const isBeingTrimmed = trimState?.segmentId === segment.id;
+                  const trimEdge = isBeingTrimmed ? trimState.edge : null;
+
+                  // Calculate segment dimensions considering trim state
+                  let effectiveStartTime = segment.start_time;
+                  let effectiveEndTime = segment.end_time;
+
+                  if (isBeingTrimmed) {
+                    if (trimState.edge === "left") {
+                      effectiveStartTime = Math.max(0, segment.start_time + trimState.currentTimeDelta);
+                      effectiveStartTime = Math.min(effectiveStartTime, segment.end_time - MIN_SEGMENT_DURATION);
+                    } else {
+                      effectiveEndTime = Math.min(duration, segment.end_time + trimState.currentTimeDelta);
+                      effectiveEndTime = Math.max(effectiveEndTime, segment.start_time + MIN_SEGMENT_DURATION);
+                    }
+                  }
+
+                  const segmentWidth = (effectiveEndTime - effectiveStartTime) * pixelsPerSecond;
 
                   // Calculate position with drag offset if this segment is being dragged
                   const dragOffset = isBeingDragged
                     ? dragState.currentOffset * pixelsPerSecond
                     : 0;
-                  const left = segment.start_time * pixelsPerSecond + dragOffset;
+                  const left = effectiveStartTime * pixelsPerSecond + dragOffset;
                   const displayWidth = Math.max(segmentWidth, 20);
+
+                  // Determine cursor based on current interaction
+                  const getCursor = () => {
+                    if (isBeingDragged) return "cursor-grabbing";
+                    if (isBeingTrimmed) return "cursor-ew-resize";
+                    return "cursor-grab";
+                  };
 
                   return (
                     <div
                       key={segment.id}
                       className={cn(
-                        "absolute top-2 h-[64px] rounded-md border cursor-grab transition-colors",
+                        "absolute top-2 h-[64px] rounded-md border transition-colors group",
                         "flex flex-col overflow-hidden select-none",
                         colors.bg,
                         colors.border,
                         colors.hover,
                         isSelected && "ring-2 ring-primary ring-offset-1",
-                        isBeingDragged && "cursor-grabbing opacity-80 shadow-lg z-30"
+                        isBeingDragged && "opacity-80 shadow-lg z-30",
+                        isBeingTrimmed && "opacity-90 shadow-md z-30",
+                        getCursor()
                       )}
                       style={{
                         left: `${left}px`,
                         width: `${displayWidth}px`,
-                        transition: isBeingDragged ? "none" : "box-shadow 150ms, opacity 150ms",
+                        transition: (isBeingDragged || isBeingTrimmed) ? "none" : "box-shadow 150ms, opacity 150ms",
                       }}
                       onClick={(e) => handleSegmentClick(e, segment)}
-                      onMouseDown={(e) => handleSegmentDragStart(e, segment)}
+                      onMouseDown={(e) => {
+                        // Check if click is near edges (within 8px) for trim
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const relativeX = e.clientX - rect.left;
+                        const trimZone = 8; // pixels
+
+                        if (relativeX <= trimZone) {
+                          handleTrimStart(e, segment, "left");
+                        } else if (relativeX >= rect.width - trimZone) {
+                          handleTrimStart(e, segment, "right");
+                        } else {
+                          handleSegmentDragStart(e, segment);
+                        }
+                      }}
                       title={
                         segment.translated_text ||
                         segment.original_text ||
                         segment.speaker
                       }
                     >
+                      {/* Left resize handle */}
+                      <div
+                        className={cn(
+                          "absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize",
+                          "opacity-0 group-hover:opacity-100 transition-opacity",
+                          "bg-primary/30 hover:bg-primary/50",
+                          "flex items-center justify-center",
+                          trimEdge === "left" && "opacity-100 bg-primary/60"
+                        )}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          handleTrimStart(e, segment, "left");
+                        }}
+                      >
+                        <div className="w-0.5 h-6 bg-primary/80 rounded-full" />
+                      </div>
+
+                      {/* Right resize handle */}
+                      <div
+                        className={cn(
+                          "absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize",
+                          "opacity-0 group-hover:opacity-100 transition-opacity",
+                          "bg-primary/30 hover:bg-primary/50",
+                          "flex items-center justify-center",
+                          trimEdge === "right" && "opacity-100 bg-primary/60"
+                        )}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          handleTrimStart(e, segment, "right");
+                        }}
+                      >
+                        <div className="w-0.5 h-6 bg-primary/80 rounded-full" />
+                      </div>
+
                       {/* Waveform visualization (background layer) */}
                       {segment.audio_url && displayWidth > 30 && (
                         <div className="absolute inset-0 opacity-40 flex items-center justify-center">
@@ -416,7 +613,7 @@ function TimelineInner({
                       )}
 
                       {/* Content overlay */}
-                      <div className="relative z-10 flex flex-col justify-center h-full px-2">
+                      <div className="relative z-10 flex flex-col justify-center h-full px-3">
                         {/* Speaker badge */}
                         {segment.speaker && (
                           <span className="mb-1 truncate text-[10px] font-medium text-muted-foreground">
