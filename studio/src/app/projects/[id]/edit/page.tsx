@@ -11,6 +11,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Timeline, TimelineTrack, TimelineSegment } from "@/components/editor/Timeline";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -26,28 +27,6 @@ import {
 } from "lucide-react";
 
 // Types
-interface Track {
-  id: string;
-  name: string;
-  type: "vocals" | "background" | "dubbed";
-  muted: boolean;
-  solo: boolean;
-  volume: number;
-  segments: Segment[];
-}
-
-interface Segment {
-  id: string;
-  track_id: string;
-  speaker?: string;
-  original_text?: string;
-  translated_text?: string;
-  start_time: number;
-  end_time: number;
-  speed_factor: number;
-  audio_url?: string;
-}
-
 interface Project {
   id: string;
   name: string;
@@ -56,7 +35,7 @@ interface Project {
   target_language: string;
   video_url?: string;
   duration?: number;
-  tracks: Track[];
+  tracks: TimelineTrack[];
 }
 
 interface EditorPageProps {
@@ -85,7 +64,8 @@ export default function EditorPage({ params }: EditorPageProps) {
 
   // Timeline state
   const [zoom, setZoom] = useState(1);
-  const [tracks, setTracks] = useState<Track[]>([]);
+  const [tracks, setTracks] = useState<TimelineTrack[]>([]);
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
 
   // Export state
   const [isExporting, setIsExporting] = useState(false);
@@ -155,12 +135,12 @@ export default function EditorPage({ params }: EditorPageProps) {
     }
   };
 
-  const handleSeek = (time: number) => {
+  const handleSeek = useCallback((time: number) => {
     if (videoRef.current) {
       videoRef.current.currentTime = time;
       setCurrentTime(time);
     }
-  };
+  }, []);
 
   // Zoom controls
   const handleZoomIn = () => {
@@ -170,6 +150,10 @@ export default function EditorPage({ params }: EditorPageProps) {
   const handleZoomOut = () => {
     setZoom((prev) => Math.max(prev / 1.5, 0.25));
   };
+
+  const handleZoomChange = useCallback((newZoom: number) => {
+    setZoom(newZoom);
+  }, []);
 
   // Track controls
   const handleMuteTrack = (trackId: string) => {
@@ -195,6 +179,11 @@ export default function EditorPage({ params }: EditorPageProps) {
       )
     );
   };
+
+  // Segment selection
+  const handleSegmentSelect = useCallback((segment: TimelineSegment | null) => {
+    setSelectedSegmentId(segment?.id ?? null);
+  }, []);
 
   // Export handler
   const handleExport = async () => {
@@ -320,7 +309,7 @@ export default function EditorPage({ params }: EditorPageProps) {
                   <ZoomOut className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Zoom Out</TooltipContent>
+              <TooltipContent>Zoom Out (Ctrl+Scroll)</TooltipContent>
             </Tooltip>
 
             <span className="min-w-[40px] text-center text-sm text-muted-foreground">
@@ -338,7 +327,7 @@ export default function EditorPage({ params }: EditorPageProps) {
                   <ZoomIn className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Zoom In</TooltipContent>
+              <TooltipContent>Zoom In (Ctrl+Scroll)</TooltipContent>
             </Tooltip>
 
             <div className="mx-2 h-6 w-px bg-border" />
@@ -490,75 +479,18 @@ export default function EditorPage({ params }: EditorPageProps) {
               )}
             </div>
 
-            {/* Timeline Editor (50% height) */}
-            <div className="flex h-1/2 flex-col overflow-hidden">
-              {/* Time ruler */}
-              <div className="flex h-8 shrink-0 items-center border-b bg-muted/50 px-4">
-                <TimeRuler
-                  duration={duration}
-                  zoom={zoom}
-                  onSeek={handleSeek}
-                />
-              </div>
-
-              {/* Timeline tracks */}
-              <div className="flex-1 overflow-auto bg-muted/20">
-                <div
-                  className="relative"
-                  style={{
-                    minWidth: `${Math.max(duration * 50 * zoom, 100)}px`,
-                    minHeight: `${tracks.length * 80}px`,
-                  }}
-                >
-                  {/* Playhead */}
-                  <div
-                    className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10"
-                    style={{
-                      left: `${currentTime * 50 * zoom}px`,
-                    }}
-                  />
-
-                  {/* Track lanes */}
-                  {tracks.map((track, index) => (
-                    <div
-                      key={track.id}
-                      className="absolute left-0 right-0 border-b border-border/50"
-                      style={{
-                        top: `${index * 80}px`,
-                        height: "80px",
-                      }}
-                    >
-                      {/* Segments */}
-                      {track.segments?.map((segment) => (
-                        <div
-                          key={segment.id}
-                          className={cn(
-                            "absolute top-2 h-[64px] rounded-md border cursor-pointer",
-                            "bg-primary/20 border-primary/40 hover:bg-primary/30",
-                            "flex items-center justify-center overflow-hidden"
-                          )}
-                          style={{
-                            left: `${segment.start_time * 50 * zoom}px`,
-                            width: `${(segment.end_time - segment.start_time) * 50 * zoom}px`,
-                          }}
-                          title={segment.translated_text || segment.original_text}
-                        >
-                          <span className="truncate px-2 text-xs">
-                            {segment.translated_text || segment.original_text || segment.speaker}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-
-                  {/* Empty state */}
-                  {tracks.length === 0 && (
-                    <div className="flex h-full items-center justify-center text-muted-foreground">
-                      No tracks to display
-                    </div>
-                  )}
-                </div>
-              </div>
+            {/* Timeline Editor (50% height) - Using Twick Timeline */}
+            <div className="h-1/2 overflow-hidden">
+              <Timeline
+                tracks={tracks}
+                duration={duration}
+                currentTime={currentTime}
+                zoom={zoom}
+                onSeek={handleSeek}
+                onZoomChange={handleZoomChange}
+                onSegmentSelect={handleSegmentSelect}
+                selectedSegmentId={selectedSegmentId}
+              />
             </div>
           </div>
         </div>
@@ -572,54 +504,5 @@ export default function EditorPage({ params }: EditorPageProps) {
         )}
       </div>
     </TooltipProvider>
-  );
-}
-
-// Time Ruler Component
-interface TimeRulerProps {
-  duration: number;
-  zoom: number;
-  onSeek: (time: number) => void;
-}
-
-function TimeRuler({ duration, zoom, onSeek }: TimeRulerProps) {
-  const rulerRef = useRef<HTMLDivElement>(null);
-
-  const handleClick = (e: React.MouseEvent) => {
-    if (rulerRef.current) {
-      const rect = rulerRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const time = x / (50 * zoom);
-      onSeek(Math.max(0, Math.min(time, duration)));
-    }
-  };
-
-  // Calculate tick marks
-  const tickInterval = zoom < 0.5 ? 10 : zoom < 1 ? 5 : zoom < 2 ? 2 : 1;
-  const ticks: number[] = [];
-  for (let t = 0; t <= duration; t += tickInterval) {
-    ticks.push(t);
-  }
-
-  return (
-    <div
-      ref={rulerRef}
-      className="relative h-full w-full cursor-pointer"
-      onClick={handleClick}
-      style={{ minWidth: `${duration * 50 * zoom}px` }}
-    >
-      {ticks.map((time) => (
-        <div
-          key={time}
-          className="absolute flex flex-col items-center"
-          style={{ left: `${time * 50 * zoom}px` }}
-        >
-          <div className="h-3 w-px bg-border" />
-          <span className="text-[10px] text-muted-foreground">
-            {Math.floor(time / 60)}:{(time % 60).toString().padStart(2, "0")}
-          </span>
-        </div>
-      ))}
-    </div>
   );
 }
