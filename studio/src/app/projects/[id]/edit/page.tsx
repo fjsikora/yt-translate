@@ -13,6 +13,7 @@ import {
 import { StatusBadge } from "@/components/StatusBadge";
 import { Timeline, TimelineTrack, TimelineSegment } from "@/components/editor/Timeline";
 import { VideoPlayer, VideoPlayerRef } from "@/components/editor/VideoPlayer";
+import { SegmentDetails } from "@/components/editor/SegmentDetails";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -67,6 +68,7 @@ export default function EditorPage({ params }: EditorPageProps) {
   const [zoom, setZoom] = useState(1);
   const [tracks, setTracks] = useState<TimelineTrack[]>([]);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
+  const [selectedSegment, setSelectedSegment] = useState<TimelineSegment | null>(null);
 
   // Export state
   const [isExporting, setIsExporting] = useState(false);
@@ -230,6 +232,13 @@ export default function EditorPage({ params }: EditorPageProps) {
   // Segment selection
   const handleSegmentSelect = useCallback((segment: TimelineSegment | null) => {
     setSelectedSegmentId(segment?.id ?? null);
+    setSelectedSegment(segment);
+  }, []);
+
+  // Close segment details panel
+  const handleCloseSegmentDetails = useCallback(() => {
+    setSelectedSegmentId(null);
+    setSelectedSegment(null);
   }, []);
 
   // Undo/redo history for segment changes
@@ -265,6 +274,23 @@ export default function EditorPage({ params }: EditorPageProps) {
       };
     }
   }, [tracks]);
+
+  // Keep selected segment in sync when tracks are updated
+  useEffect(() => {
+    if (selectedSegmentId && tracks.length > 0) {
+      // Find the segment by ID in the updated tracks
+      for (const track of tracks) {
+        const segment = track.segments.find((s) => s.id === selectedSegmentId);
+        if (segment) {
+          setSelectedSegment(segment);
+          return;
+        }
+      }
+      // Segment not found (possibly deleted), clear selection
+      setSelectedSegment(null);
+      setSelectedSegmentId(null);
+    }
+  }, [tracks, selectedSegmentId]);
 
   // Save segment timing to API (shared by drag-drop and trim operations)
   const saveSegmentTiming = useCallback(
@@ -721,20 +747,35 @@ export default function EditorPage({ params }: EditorPageProps) {
             </div>
 
             {/* Timeline Editor (50% height) - Using Twick Timeline */}
-            <div className="h-1/2 overflow-hidden">
-              <Timeline
-                tracks={tracks}
-                duration={duration}
-                currentTime={currentTime}
-                zoom={zoom}
-                onSeek={handleSeek}
-                onZoomChange={handleZoomChange}
-                onSegmentSelect={handleSegmentSelect}
-                onSegmentDrop={handleSegmentDrop}
-                onSegmentTrim={handleSegmentTrim}
-                onSegmentStretch={handleSegmentStretch}
-                selectedSegmentId={selectedSegmentId}
-              />
+            <div className="flex h-1/2 flex-col overflow-hidden">
+              {/* Timeline */}
+              <div className={cn(
+                "overflow-hidden transition-all duration-200",
+                selectedSegment ? "flex-1" : "h-full"
+              )}>
+                <Timeline
+                  tracks={tracks}
+                  duration={duration}
+                  currentTime={currentTime}
+                  zoom={zoom}
+                  onSeek={handleSeek}
+                  onZoomChange={handleZoomChange}
+                  onSegmentSelect={handleSegmentSelect}
+                  onSegmentDrop={handleSegmentDrop}
+                  onSegmentTrim={handleSegmentTrim}
+                  onSegmentStretch={handleSegmentStretch}
+                  selectedSegmentId={selectedSegmentId}
+                />
+              </div>
+
+              {/* Segment Details Panel */}
+              {selectedSegment && (
+                <SegmentDetails
+                  segment={selectedSegment}
+                  onClose={handleCloseSegmentDetails}
+                  className="max-h-[200px] overflow-y-auto"
+                />
+              )}
             </div>
           </div>
         </div>
