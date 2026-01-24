@@ -14,6 +14,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Timeline, TimelineTrack, TimelineSegment } from "@/components/editor/Timeline";
 import { VideoPlayer, VideoPlayerRef } from "@/components/editor/VideoPlayer";
 import { SegmentDetails } from "@/components/editor/SegmentDetails";
+import { ExportDialog } from "@/components/editor/ExportDialog";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -24,7 +25,6 @@ import {
   Download,
   Volume2,
   VolumeX,
-  RefreshCw,
   AlertCircle,
 } from "lucide-react";
 
@@ -70,8 +70,8 @@ export default function EditorPage({ params }: EditorPageProps) {
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [selectedSegment, setSelectedSegment] = useState<TimelineSegment | null>(null);
 
-  // Export state
-  const [isExporting, setIsExporting] = useState(false);
+  // Export dialog state
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
 
   // Resolve params promise
   useEffect(() => {
@@ -456,40 +456,16 @@ export default function EditorPage({ params }: EditorPageProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleUndo, handleRedo]);
 
-  // Export handler
-  const handleExport = async () => {
-    if (!projectId) return;
-
-    setIsExporting(true);
-    setError(null);
-
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/projects/${projectId}/export`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          errorData.detail || `Export failed: ${response.statusText}`
-        );
-      }
-
-      const data = await response.json();
-      if (data.export_url) {
-        window.open(data.export_url, "_blank");
-      }
-    } catch (err) {
-      console.error("Export failed:", err);
-      setError(err instanceof Error ? err.message : "Export failed");
-    } finally {
-      setIsExporting(false);
-    }
+  // Open export dialog
+  const handleOpenExportDialog = () => {
+    setIsExportDialogOpen(true);
   };
+
+  // Count total segments across all tracks
+  const totalSegmentCount = tracks.reduce(
+    (sum, track) => sum + track.segments.length,
+    0
+  );
 
   // Loading state
   if (isLoading) {
@@ -608,20 +584,10 @@ export default function EditorPage({ params }: EditorPageProps) {
                 <Button
                   variant="default"
                   size="sm"
-                  onClick={handleExport}
-                  disabled={isExporting}
+                  onClick={handleOpenExportDialog}
                 >
-                  {isExporting ? (
-                    <>
-                      <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                      Exporting...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="mr-2 h-4 w-4" />
-                      Export
-                    </>
-                  )}
+                  <Download className="mr-2 h-4 w-4" />
+                  Export
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Export final video</TooltipContent>
@@ -787,6 +753,17 @@ export default function EditorPage({ params }: EditorPageProps) {
             <span className="text-sm text-destructive">{error}</span>
           </div>
         )}
+
+        {/* Export Dialog */}
+        <ExportDialog
+          open={isExportDialogOpen}
+          onOpenChange={setIsExportDialogOpen}
+          projectId={projectId || ""}
+          projectName={project.name}
+          duration={duration}
+          trackCount={tracks.length}
+          segmentCount={totalSegmentCount}
+        />
       </div>
     </TooltipProvider>
   );
