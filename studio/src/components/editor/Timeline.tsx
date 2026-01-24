@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useMemo } from "react";
+import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import {
   TimelineProvider,
   useTimelineContext,
@@ -32,6 +32,16 @@ export interface TimelineTrack {
   segments: TimelineSegment[];
 }
 
+// Drag state interface
+interface DragState {
+  segmentId: string;
+  trackId: string;
+  initialStartTime: number;
+  initialEndTime: number;
+  dragStartX: number;
+  currentOffset: number;
+}
+
 interface TimelineProps {
   tracks: TimelineTrack[];
   duration: number;
@@ -40,6 +50,7 @@ interface TimelineProps {
   onSeek: (time: number) => void;
   onZoomChange: (zoom: number) => void;
   onSegmentSelect?: (segment: TimelineSegment | null) => void;
+  onSegmentDrop?: (segmentId: string, startTime: number, endTime: number) => void;
   selectedSegmentId?: string | null;
 }
 
@@ -102,6 +113,7 @@ function TimelineInner({
   onSeek,
   onZoomChange,
   onSegmentSelect,
+  onSegmentDrop,
   selectedSegmentId,
 }: TimelineProps) {
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -112,6 +124,10 @@ function TimelineInner({
 
   const pixelsPerSecond = BASE_PIXELS_PER_SECOND * zoom;
   const timelineWidth = Math.max(duration * pixelsPerSecond, 800);
+
+  // Drag state for segment repositioning
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const isDragging = dragState !== null;
 
   // Handle scroll wheel zoom
   const handleWheel = useCallback(
@@ -134,6 +150,98 @@ function TimelineInner({
       return () => container.removeEventListener("wheel", handleWheel);
     }
   }, [handleWheel]);
+
+  // Handle segment drag start
+  const handleSegmentDragStart = useCallback(
+    (e: React.MouseEvent, segment: TimelineSegment) => {
+      e.stopPropagation();
+      e.preventDefault();
+
+      setDragState({
+        segmentId: segment.id,
+        trackId: segment.track_id,
+        initialStartTime: segment.start_time,
+        initialEndTime: segment.end_time,
+        dragStartX: e.clientX,
+        currentOffset: 0,
+      });
+
+      // Select the segment being dragged
+      onSegmentSelect?.(segment);
+    },
+    [onSegmentSelect]
+  );
+
+  // Handle mouse move during drag
+  const handleMouseMove = useCallback(
+    (e: MouseEvent) => {
+      if (!dragState) return;
+
+      const deltaX = e.clientX - dragState.dragStartX;
+      const timeOffset = deltaX / pixelsPerSecond;
+
+      // Calculate new start time, ensuring it doesn't go below 0
+      const newStartTime = Math.max(0, dragState.initialStartTime + timeOffset);
+      const segmentDuration = dragState.initialEndTime - dragState.initialStartTime;
+      const newEndTime = newStartTime + segmentDuration;
+
+      // Don't allow dragging beyond duration
+      if (newEndTime > duration) {
+        const adjustedStartTime = duration - segmentDuration;
+        setDragState((prev) =>
+          prev
+            ? {
+                ...prev,
+                currentOffset: adjustedStartTime - prev.initialStartTime,
+              }
+            : null
+        );
+      } else {
+        setDragState((prev) =>
+          prev
+            ? {
+                ...prev,
+                currentOffset: newStartTime - prev.initialStartTime,
+              }
+            : null
+        );
+      }
+    },
+    [dragState, pixelsPerSecond, duration]
+  );
+
+  // Handle mouse up to finish drag
+  const handleMouseUp = useCallback(() => {
+    if (!dragState) return;
+
+    const segmentDuration = dragState.initialEndTime - dragState.initialStartTime;
+    let newStartTime = dragState.initialStartTime + dragState.currentOffset;
+
+    // Clamp values
+    newStartTime = Math.max(0, newStartTime);
+    const newEndTime = Math.min(duration, newStartTime + segmentDuration);
+    newStartTime = newEndTime - segmentDuration;
+
+    // Only trigger callback if position actually changed
+    if (Math.abs(dragState.currentOffset) > 0.01) {
+      onSegmentDrop?.(dragState.segmentId, newStartTime, newEndTime);
+    }
+
+    setDragState(null);
+  }, [dragState, duration, onSegmentDrop]);
+
+  // Attach drag event listeners
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+
+      return () => {
+        window.removeEventListener("mousemove", handleMouseMove);
+        window.removeEventListener("mouseup", handleMouseUp);
+      };
+    }
+  }, [isDragging, handleMouseMove, handleMouseUp]);
 
   // Handle click on timeline to seek
   const handleTimelineClick = (e: React.MouseEvent) => {
@@ -251,27 +359,36 @@ function TimelineInner({
                 {/* Segments */}
                 {track.segments.map((segment) => {
                   const isSelected = selectedSegmentId === segment.id;
+                  const isBeingDragged = dragState?.segmentId === segment.id;
                   const segmentWidth =
                     (segment.end_time - segment.start_time) * pixelsPerSecond;
-                  const left = segment.start_time * pixelsPerSecond;
+
+                  // Calculate position with drag offset if this segment is being dragged
+                  const dragOffset = isBeingDragged
+                    ? dragState.currentOffset * pixelsPerSecond
+                    : 0;
+                  const left = segment.start_time * pixelsPerSecond + dragOffset;
                   const displayWidth = Math.max(segmentWidth, 20);
 
                   return (
                     <div
                       key={segment.id}
                       className={cn(
-                        "absolute top-2 h-[64px] rounded-md border cursor-pointer transition-all",
-                        "flex flex-col overflow-hidden",
+                        "absolute top-2 h-[64px] rounded-md border cursor-grab transition-colors",
+                        "flex flex-col overflow-hidden select-none",
                         colors.bg,
                         colors.border,
                         colors.hover,
-                        isSelected && "ring-2 ring-primary ring-offset-1"
+                        isSelected && "ring-2 ring-primary ring-offset-1",
+                        isBeingDragged && "cursor-grabbing opacity-80 shadow-lg z-30"
                       )}
                       style={{
                         left: `${left}px`,
                         width: `${displayWidth}px`,
+                        transition: isBeingDragged ? "none" : "box-shadow 150ms, opacity 150ms",
                       }}
                       onClick={(e) => handleSegmentClick(e, segment)}
+                      onMouseDown={(e) => handleSegmentDragStart(e, segment)}
                       title={
                         segment.translated_text ||
                         segment.original_text ||

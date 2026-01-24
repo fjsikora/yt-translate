@@ -177,6 +177,143 @@ export default function EditorPage({ params }: EditorPageProps) {
     setSelectedSegmentId(segment?.id ?? null);
   }, []);
 
+  // Undo/redo history for segment changes
+  const historyRef = useRef<{ tracks: TimelineTrack[]; index: number }>({
+    tracks: [],
+    index: -1,
+  });
+  const MAX_HISTORY = 50;
+
+  // Push current state to history
+  const pushHistory = useCallback(() => {
+    const history = historyRef.current;
+    const newHistory = history.tracks.slice(0, history.index + 1);
+    newHistory.push(JSON.parse(JSON.stringify(tracks)));
+
+    // Trim history if too long
+    if (newHistory.length > MAX_HISTORY) {
+      newHistory.shift();
+    }
+
+    historyRef.current = {
+      tracks: newHistory,
+      index: newHistory.length - 1,
+    };
+  }, [tracks]);
+
+  // Initialize history when tracks are first loaded
+  useEffect(() => {
+    if (tracks.length > 0 && historyRef.current.tracks.length === 0) {
+      historyRef.current = {
+        tracks: [JSON.parse(JSON.stringify(tracks))],
+        index: 0,
+      };
+    }
+  }, [tracks]);
+
+  // Handle segment drop (after drag-and-drop)
+  const handleSegmentDrop = useCallback(
+    async (segmentId: string, startTime: number, endTime: number) => {
+      // Push current state to history before making changes
+      pushHistory();
+
+      // Update local state immediately for responsive UI
+      setTracks((prev) =>
+        prev.map((track) => ({
+          ...track,
+          segments: track.segments.map((segment) =>
+            segment.id === segmentId
+              ? { ...segment, start_time: startTime, end_time: endTime }
+              : segment
+          ),
+        }))
+      );
+
+      // Save to API
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const response = await fetch(`${apiUrl}/api/segments/${segmentId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            start_time: startTime,
+            end_time: endTime,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(
+            errorData.detail || `Failed to save segment: ${response.statusText}`
+          );
+        }
+      } catch (err) {
+        console.error("Failed to save segment:", err);
+        setError(err instanceof Error ? err.message : "Failed to save segment");
+        // Note: We don't revert since the user can undo manually
+      }
+    },
+    [pushHistory]
+  );
+
+  // Undo handler
+  const handleUndo = useCallback(() => {
+    const history = historyRef.current;
+    if (history.index > 0) {
+      const newIndex = history.index - 1;
+      const previousTracks = JSON.parse(JSON.stringify(history.tracks[newIndex]));
+      historyRef.current = { ...history, index: newIndex };
+      setTracks(previousTracks);
+    }
+  }, []);
+
+  // Redo handler
+  const handleRedo = useCallback(() => {
+    const history = historyRef.current;
+    if (history.index < history.tracks.length - 1) {
+      const newIndex = history.index + 1;
+      const nextTracks = JSON.parse(JSON.stringify(history.tracks[newIndex]));
+      historyRef.current = { ...history, index: newIndex };
+      setTracks(nextTracks);
+    }
+  }, []);
+
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if we're focused on an input element
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+
+      // Ctrl/Cmd + Z for undo
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+
+      // Ctrl/Cmd + Shift + Z for redo
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && e.shiftKey) {
+        e.preventDefault();
+        handleRedo();
+      }
+
+      // Ctrl/Cmd + Y for redo (alternative)
+      if ((e.ctrlKey || e.metaKey) && e.key === "y") {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleUndo, handleRedo]);
+
   // Export handler
   const handleExport = async () => {
     if (!projectId) return;
@@ -477,6 +614,7 @@ export default function EditorPage({ params }: EditorPageProps) {
                 onSeek={handleSeek}
                 onZoomChange={handleZoomChange}
                 onSegmentSelect={handleSegmentSelect}
+                onSegmentDrop={handleSegmentDrop}
                 selectedSegmentId={selectedSegmentId}
               />
             </div>
