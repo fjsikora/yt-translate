@@ -7,6 +7,7 @@ import {
   TrackJSON,
 } from "@twick/timeline";
 import { cn } from "@/lib/utils";
+import { SegmentWaveform } from "./SegmentWaveform";
 
 // Types matching the project data structure
 export interface TimelineSegment {
@@ -250,16 +251,17 @@ function TimelineInner({
                 {/* Segments */}
                 {track.segments.map((segment) => {
                   const isSelected = selectedSegmentId === segment.id;
-                  const width =
+                  const segmentWidth =
                     (segment.end_time - segment.start_time) * pixelsPerSecond;
                   const left = segment.start_time * pixelsPerSecond;
+                  const displayWidth = Math.max(segmentWidth, 20);
 
                   return (
                     <div
                       key={segment.id}
                       className={cn(
                         "absolute top-2 h-[64px] rounded-md border cursor-pointer transition-all",
-                        "flex flex-col justify-center overflow-hidden px-2",
+                        "flex flex-col overflow-hidden",
                         colors.bg,
                         colors.border,
                         colors.hover,
@@ -267,7 +269,7 @@ function TimelineInner({
                       )}
                       style={{
                         left: `${left}px`,
-                        width: `${Math.max(width, 20)}px`,
+                        width: `${displayWidth}px`,
                       }}
                       onClick={(e) => handleSegmentClick(e, segment)}
                       title={
@@ -276,24 +278,47 @@ function TimelineInner({
                         segment.speaker
                       }
                     >
-                      {/* Speaker badge */}
-                      {segment.speaker && (
-                        <span className="mb-1 truncate text-[10px] font-medium text-muted-foreground">
-                          {segment.speaker}
-                        </span>
+                      {/* Waveform visualization (background layer) */}
+                      {segment.audio_url && displayWidth > 30 && (
+                        <div className="absolute inset-0 opacity-40 flex items-center justify-center">
+                          <SegmentWaveform
+                            audioUrl={segment.audio_url}
+                            width={displayWidth - 4}
+                            height={56}
+                            color={
+                              track.type === "vocals"
+                                ? "#3b82f6"
+                                : track.type === "background"
+                                ? "#22c55e"
+                                : "#a855f7"
+                            }
+                            zoom={zoom}
+                            showLoading={false}
+                          />
+                        </div>
                       )}
-                      {/* Text content */}
-                      <span className="truncate text-xs">
-                        {segment.translated_text ||
-                          segment.original_text ||
-                          "\u00A0"}
-                      </span>
-                      {/* Speed factor indicator */}
-                      {segment.speed_factor !== 1.0 && (
-                        <span className="mt-1 text-[10px] text-muted-foreground">
-                          {segment.speed_factor.toFixed(2)}x
+
+                      {/* Content overlay */}
+                      <div className="relative z-10 flex flex-col justify-center h-full px-2">
+                        {/* Speaker badge */}
+                        {segment.speaker && (
+                          <span className="mb-1 truncate text-[10px] font-medium text-muted-foreground">
+                            {segment.speaker}
+                          </span>
+                        )}
+                        {/* Text content */}
+                        <span className="truncate text-xs">
+                          {segment.translated_text ||
+                            segment.original_text ||
+                            "\u00A0"}
                         </span>
-                      )}
+                        {/* Speed factor indicator */}
+                        {segment.speed_factor !== 1.0 && (
+                          <span className="mt-1 text-[10px] text-muted-foreground">
+                            {segment.speed_factor.toFixed(2)}x
+                          </span>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
