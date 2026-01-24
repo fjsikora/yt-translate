@@ -147,30 +147,85 @@ export default function EditorPage({ params }: EditorPageProps) {
     setZoom(newZoom);
   }, []);
 
+  // Save track settings to API
+  const saveTrackSettings = useCallback(
+    async (trackId: string, settings: { muted?: boolean; solo?: boolean; volume?: number }) => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const response = await fetch(`${apiUrl}/api/tracks/${trackId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(settings),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(
+            errorData.detail || `Failed to save track: ${response.statusText}`
+          );
+        }
+      } catch (err) {
+        console.error("Failed to save track:", err);
+        setError(err instanceof Error ? err.message : "Failed to save track");
+      }
+    },
+    []
+  );
+
   // Track controls
-  const handleMuteTrack = (trackId: string) => {
-    setTracks((prev) =>
-      prev.map((track) =>
-        track.id === trackId ? { ...track, muted: !track.muted } : track
-      )
-    );
-  };
+  const handleMuteTrack = useCallback((trackId: string) => {
+    setTracks((prev) => {
+      const track = prev.find((t) => t.id === trackId);
+      if (!track) return prev;
 
-  const handleSoloTrack = (trackId: string) => {
-    setTracks((prev) =>
-      prev.map((track) =>
-        track.id === trackId ? { ...track, solo: !track.solo } : track
-      )
-    );
-  };
+      const newMuted = !track.muted;
+      // Save to API asynchronously
+      saveTrackSettings(trackId, { muted: newMuted });
 
-  const handleVolumeChange = (trackId: string, volume: number) => {
+      return prev.map((t) =>
+        t.id === trackId ? { ...t, muted: newMuted } : t
+      );
+    });
+  }, [saveTrackSettings]);
+
+  const handleSoloTrack = useCallback((trackId: string) => {
+    setTracks((prev) => {
+      const track = prev.find((t) => t.id === trackId);
+      if (!track) return prev;
+
+      const newSolo = !track.solo;
+      // Save to API asynchronously
+      saveTrackSettings(trackId, { solo: newSolo });
+
+      return prev.map((t) =>
+        t.id === trackId ? { ...t, solo: newSolo } : t
+      );
+    });
+  }, [saveTrackSettings]);
+
+  // Volume change with debounced API save
+  const volumeTimeoutRef = useRef<Record<string, NodeJS.Timeout>>({});
+
+  const handleVolumeChange = useCallback((trackId: string, volume: number) => {
+    // Update local state immediately for responsive UI
     setTracks((prev) =>
       prev.map((track) =>
         track.id === trackId ? { ...track, volume } : track
       )
     );
-  };
+
+    // Debounce API save to avoid too many requests during slider drag
+    if (volumeTimeoutRef.current[trackId]) {
+      clearTimeout(volumeTimeoutRef.current[trackId]);
+    }
+
+    volumeTimeoutRef.current[trackId] = setTimeout(() => {
+      saveTrackSettings(trackId, { volume });
+      delete volumeTimeoutRef.current[trackId];
+    }, 300);
+  }, [saveTrackSettings]);
 
   // Segment selection
   const handleSegmentSelect = useCallback((segment: TimelineSegment | null) => {

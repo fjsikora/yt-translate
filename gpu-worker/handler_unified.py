@@ -338,6 +338,23 @@ class SegmentUpdate(BaseModel):
     )
 
 
+class TrackUpdate(BaseModel):
+    """Request model for updating track settings from the editor."""
+
+    muted: bool | None = Field(
+        default=None, description="Is track muted"
+    )
+    solo: bool | None = Field(
+        default=None, description="Is track soloed"
+    )
+    volume: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=2.0,
+        description="Volume level (0.0 to 2.0)",
+    )
+
+
 class TrackResponse(BaseModel):
     """Response model for a track."""
 
@@ -2877,6 +2894,81 @@ async def update_segment(segment_id: str, request: SegmentUpdate) -> SegmentResp
     except Exception as e:
         logger.error(f"Failed to update segment: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to update segment: {e}")
+
+
+# =============================================================================
+# Track Update Endpoint
+# =============================================================================
+
+
+def _format_track_simple(track: dict[str, Any]) -> dict[str, Any]:
+    """Format a track database row for response (without segments)."""
+    return {
+        "id": track.get("id", ""),
+        "project_id": track.get("project_id", ""),
+        "name": track.get("name", ""),
+        "type": track.get("type", "dubbed"),
+        "muted": track.get("muted", False),
+        "solo": track.get("solo", False),
+        "volume": track.get("volume", 1.0),
+        "order_index": track.get("order_index", 0),
+        "created_at": track.get("created_at", ""),
+        "updated_at": track.get("updated_at", ""),
+        "segments": [],  # Empty list, caller can populate if needed
+    }
+
+
+@app.patch("/api/tracks/{track_id}", response_model=TrackResponse)
+async def update_track(track_id: str, request: TrackUpdate) -> TrackResponse:
+    """
+    Update track settings from the editor.
+
+    Supports updating mute, solo, and volume settings for a track.
+    The updated_at timestamp is automatically set by the database trigger.
+
+    Args:
+        track_id: UUID of the track to update
+        request: TrackUpdate with settings to update
+
+    Returns:
+        TrackResponse with updated track details
+
+    Raises:
+        HTTPException: If track not found or update fails
+    """
+    try:
+        client = get_supabase_client()
+
+        # Build update data (only include non-None fields)
+        update_data: dict[str, Any] = {}
+        for field, value in request.model_dump().items():
+            if value is not None:
+                update_data[field] = value
+
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        # Update track
+        result = (
+            client.table("dub_tracks")
+            .update(update_data)
+            .eq("id", track_id)
+            .execute()
+        )
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Track not found")
+
+        track = result.data[0]
+        logger.info(f"Updated track: {track_id}")
+
+        return TrackResponse(**_format_track_simple(track))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update track: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update track: {e}")
 
 
 # =============================================================================
