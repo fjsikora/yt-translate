@@ -275,6 +275,107 @@ class TranslateResponse(BaseModel):
 
 
 # =============================================================================
+# Project CRUD Models
+# =============================================================================
+
+
+class ProjectCreate(BaseModel):
+    """Request model for creating a new project."""
+
+    name: str = Field(..., description="Project name")
+    source_language: str = Field(default="en", description="Source language code")
+    target_language: str = Field(default="es", description="Target language code")
+    video_url: str | None = Field(default=None, description="URL of source video")
+
+
+class ProjectUpdate(BaseModel):
+    """Request model for updating project metadata."""
+
+    name: str | None = Field(default=None, description="Project name")
+    status: str | None = Field(default=None, description="Project status")
+    source_language: str | None = Field(default=None, description="Source language")
+    target_language: str | None = Field(default=None, description="Target language")
+    video_url: str | None = Field(default=None, description="Video URL")
+    audio_url: str | None = Field(default=None, description="Audio URL")
+    vocals_url: str | None = Field(default=None, description="Vocals URL")
+    background_url: str | None = Field(default=None, description="Background URL")
+    mixed_url: str | None = Field(default=None, description="Mixed audio URL")
+    export_url: str | None = Field(default=None, description="Export URL")
+    duration: float | None = Field(default=None, description="Duration in seconds")
+
+
+class SegmentResponse(BaseModel):
+    """Response model for a segment."""
+
+    id: str = Field(..., description="Segment UUID")
+    track_id: str = Field(..., description="Parent track UUID")
+    speaker: str | None = Field(default=None, description="Speaker label")
+    original_text: str | None = Field(default=None, description="Original text")
+    translated_text: str | None = Field(default=None, description="Translated text")
+    start_time: float = Field(..., description="Start time in seconds")
+    end_time: float = Field(..., description="End time in seconds")
+    speed_factor: float = Field(default=1.0, description="Speed factor")
+    audio_url: str | None = Field(default=None, description="Audio URL")
+    order_index: int = Field(default=0, description="Order index")
+    created_at: str = Field(..., description="Creation timestamp")
+    updated_at: str = Field(..., description="Last update timestamp")
+
+
+class TrackResponse(BaseModel):
+    """Response model for a track."""
+
+    id: str = Field(..., description="Track UUID")
+    project_id: str = Field(..., description="Parent project UUID")
+    name: str = Field(..., description="Track name")
+    type: str = Field(default="dubbed", description="Track type")
+    muted: bool = Field(default=False, description="Is track muted")
+    solo: bool = Field(default=False, description="Is track soloed")
+    volume: float = Field(default=1.0, description="Volume level")
+    order_index: int = Field(default=0, description="Order index")
+    created_at: str = Field(..., description="Creation timestamp")
+    updated_at: str = Field(..., description="Last update timestamp")
+    segments: list[SegmentResponse] = Field(
+        default_factory=list, description="Track segments"
+    )
+
+
+class ProjectResponse(BaseModel):
+    """Response model for a project."""
+
+    id: str = Field(..., description="Project UUID")
+    name: str = Field(..., description="Project name")
+    status: str = Field(..., description="Project status")
+    source_language: str = Field(..., description="Source language code")
+    target_language: str = Field(..., description="Target language code")
+    video_url: str | None = Field(default=None, description="Video URL")
+    audio_url: str | None = Field(default=None, description="Audio URL")
+    vocals_url: str | None = Field(default=None, description="Vocals URL")
+    background_url: str | None = Field(default=None, description="Background URL")
+    mixed_url: str | None = Field(default=None, description="Mixed audio URL")
+    export_url: str | None = Field(default=None, description="Export URL")
+    duration: float | None = Field(default=None, description="Duration in seconds")
+    user_id: str | None = Field(default=None, description="Owner user ID")
+    created_at: str = Field(..., description="Creation timestamp")
+    updated_at: str = Field(..., description="Last update timestamp")
+
+
+class ProjectDetailResponse(ProjectResponse):
+    """Response model for a project with tracks and segments."""
+
+    tracks: list[TrackResponse] = Field(
+        default_factory=list, description="Project tracks with segments"
+    )
+
+
+class ProjectListResponse(BaseModel):
+    """Response model for listing projects."""
+
+    projects: list[ProjectResponse] = Field(
+        default_factory=list, description="List of projects"
+    )
+
+
+# =============================================================================
 # Global State
 # =============================================================================
 
@@ -298,6 +399,35 @@ app_state = AppState()
 
 
 # =============================================================================
+# Supabase Client Helper
+# =============================================================================
+
+
+def get_supabase_client() -> Any:
+    """
+    Get a Supabase client instance.
+
+    Returns:
+        Supabase client configured with environment credentials
+
+    Raises:
+        HTTPException: If credentials are not configured
+    """
+    from supabase import create_client
+
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+
+    if not supabase_url or not supabase_key:
+        raise HTTPException(
+            status_code=500,
+            detail="SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables required",
+        )
+
+    return create_client(supabase_url, supabase_key)
+
+
+# =============================================================================
 # Audio Download Utility
 # =============================================================================
 
@@ -317,7 +447,7 @@ async def download_audio(audio_url: str, timeout: float = 300.0) -> Path:
         HTTPException: If download fails
     """
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             response = await client.get(audio_url)
             response.raise_for_status()
 
@@ -377,7 +507,7 @@ async def download_video(video_url: str, timeout: float = 600.0) -> Path:
         HTTPException: If download fails
     """
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             response = await client.get(video_url)
             response.raise_for_status()
 
@@ -2321,3 +2451,312 @@ async def dub(request: DubRequest) -> DubResponse:
                     path.unlink()
                 except Exception as e:
                     logger.warning(f"Failed to clean up temp file {path}: {e}")
+
+
+# =============================================================================
+# Project CRUD Endpoints
+# =============================================================================
+
+
+def _format_project(row: dict[str, Any]) -> dict[str, Any]:
+    """Format a project row for API response."""
+    return {
+        "id": str(row["id"]),
+        "name": row["name"],
+        "status": row["status"],
+        "source_language": row["source_language"],
+        "target_language": row["target_language"],
+        "video_url": row.get("video_url"),
+        "audio_url": row.get("audio_url"),
+        "vocals_url": row.get("vocals_url"),
+        "background_url": row.get("background_url"),
+        "mixed_url": row.get("mixed_url"),
+        "export_url": row.get("export_url"),
+        "duration": float(row["duration"]) if row.get("duration") else None,
+        "user_id": str(row["user_id"]) if row.get("user_id") else None,
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def _format_track(row: dict[str, Any]) -> dict[str, Any]:
+    """Format a track row for API response."""
+    return {
+        "id": str(row["id"]),
+        "project_id": str(row["project_id"]),
+        "name": row["name"],
+        "type": row["type"],
+        "muted": row["muted"],
+        "solo": row["solo"],
+        "volume": float(row["volume"]),
+        "order_index": row["order_index"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def _format_segment(row: dict[str, Any]) -> dict[str, Any]:
+    """Format a segment row for API response."""
+    return {
+        "id": str(row["id"]),
+        "track_id": str(row["track_id"]),
+        "speaker": row.get("speaker"),
+        "original_text": row.get("original_text"),
+        "translated_text": row.get("translated_text"),
+        "start_time": float(row["start_time"]),
+        "end_time": float(row["end_time"]),
+        "speed_factor": float(row["speed_factor"]),
+        "audio_url": row.get("audio_url"),
+        "order_index": row["order_index"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+@app.post("/api/projects", response_model=ProjectResponse)
+async def create_project(request: ProjectCreate) -> ProjectResponse:
+    """
+    Create a new dubbing project.
+
+    Args:
+        request: ProjectCreate with name, source/target languages, optional video_url
+
+    Returns:
+        ProjectResponse with the created project details
+
+    Raises:
+        HTTPException: If project creation fails
+    """
+    try:
+        client = get_supabase_client()
+
+        # Build insert data
+        insert_data: dict[str, Any] = {
+            "name": request.name,
+            "source_language": request.source_language,
+            "target_language": request.target_language,
+            "status": "pending",
+        }
+
+        if request.video_url:
+            insert_data["video_url"] = request.video_url
+
+        # Insert project
+        result = client.table("dub_projects").insert(insert_data).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Failed to create project")
+
+        project = result.data[0]
+        logger.info(f"Created project: {project['id']}")
+
+        return ProjectResponse(**_format_project(project))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create project: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create project: {e}")
+
+
+@app.get("/api/projects", response_model=ProjectListResponse)
+async def list_projects() -> ProjectListResponse:
+    """
+    List all dubbing projects.
+
+    Returns:
+        ProjectListResponse with list of projects ordered by creation date
+
+    Raises:
+        HTTPException: If fetching projects fails
+    """
+    try:
+        client = get_supabase_client()
+
+        # Fetch all projects ordered by creation date (newest first)
+        result = (
+            client.table("dub_projects")
+            .select("*")
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+        projects = [ProjectResponse(**_format_project(row)) for row in result.data]
+        logger.info(f"Listed {len(projects)} projects")
+
+        return ProjectListResponse(projects=projects)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to list projects: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list projects: {e}")
+
+
+@app.get("/api/projects/{project_id}", response_model=ProjectDetailResponse)
+async def get_project(project_id: str) -> ProjectDetailResponse:
+    """
+    Get a project with its tracks and segments.
+
+    Args:
+        project_id: UUID of the project to retrieve
+
+    Returns:
+        ProjectDetailResponse with project, tracks, and segments
+
+    Raises:
+        HTTPException: If project not found or fetching fails
+    """
+    try:
+        client = get_supabase_client()
+
+        # Fetch project
+        project_result = (
+            client.table("dub_projects").select("*").eq("id", project_id).execute()
+        )
+
+        if not project_result.data:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        project = project_result.data[0]
+
+        # Fetch tracks for this project
+        tracks_result = (
+            client.table("dub_tracks")
+            .select("*")
+            .eq("project_id", project_id)
+            .order("order_index")
+            .execute()
+        )
+
+        tracks_with_segments: list[TrackResponse] = []
+
+        for track_row in tracks_result.data:
+            # Fetch segments for this track
+            segments_result = (
+                client.table("dub_segments")
+                .select("*")
+                .eq("track_id", track_row["id"])
+                .order("order_index")
+                .execute()
+            )
+
+            segments = [
+                SegmentResponse(**_format_segment(seg)) for seg in segments_result.data
+            ]
+
+            track_data = _format_track(track_row)
+            track_data["segments"] = segments
+            tracks_with_segments.append(TrackResponse(**track_data))
+
+        project_data = _format_project(project)
+        project_data["tracks"] = tracks_with_segments
+
+        logger.info(
+            f"Retrieved project {project_id} with {len(tracks_with_segments)} tracks"
+        )
+
+        return ProjectDetailResponse(**project_data)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get project: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get project: {e}")
+
+
+@app.patch("/api/projects/{project_id}", response_model=ProjectResponse)
+async def update_project(
+    project_id: str, request: ProjectUpdate
+) -> ProjectResponse:
+    """
+    Update project metadata.
+
+    Args:
+        project_id: UUID of the project to update
+        request: ProjectUpdate with fields to update
+
+    Returns:
+        ProjectResponse with updated project details
+
+    Raises:
+        HTTPException: If project not found or update fails
+    """
+    try:
+        client = get_supabase_client()
+
+        # Build update data (only include non-None fields)
+        update_data: dict[str, Any] = {}
+        for field, value in request.model_dump().items():
+            if value is not None:
+                update_data[field] = value
+
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        # Update project
+        result = (
+            client.table("dub_projects")
+            .update(update_data)
+            .eq("id", project_id)
+            .execute()
+        )
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        project = result.data[0]
+        logger.info(f"Updated project: {project_id}")
+
+        return ProjectResponse(**_format_project(project))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update project: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update project: {e}")
+
+
+@app.delete("/api/projects/{project_id}")
+async def delete_project(project_id: str) -> dict[str, Any]:
+    """
+    Delete a project and all related data.
+
+    The database has ON DELETE CASCADE, so deleting the project will
+    automatically delete all related tracks and segments.
+
+    Args:
+        project_id: UUID of the project to delete
+
+    Returns:
+        Success message with deleted project ID
+
+    Raises:
+        HTTPException: If project not found or deletion fails
+    """
+    try:
+        client = get_supabase_client()
+
+        # Check if project exists
+        check_result = (
+            client.table("dub_projects")
+            .select("id")
+            .eq("id", project_id)
+            .execute()
+        )
+
+        if not check_result.data:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Delete project (cascades to tracks and segments)
+        client.table("dub_projects").delete().eq("id", project_id).execute()
+
+        logger.info(f"Deleted project: {project_id}")
+
+        return {"success": True, "deleted_id": project_id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete project: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete project: {e}")
