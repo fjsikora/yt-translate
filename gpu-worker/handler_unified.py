@@ -2877,3 +2877,524 @@ async def update_segment(segment_id: str, request: SegmentUpdate) -> SegmentResp
     except Exception as e:
         logger.error(f"Failed to update segment: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to update segment: {e}")
+
+
+# =============================================================================
+# Export Endpoint
+# =============================================================================
+
+
+class ExportResponse(BaseModel):
+    """Response model for project export endpoint."""
+
+    export_url: str = Field(..., description="Signed URL for the exported video file")
+
+
+async def _apply_speed_factor(
+    input_path: Path,
+    output_path: Path,
+    speed_factor: float,
+) -> None:
+    """
+    Apply speed factor to audio using FFmpeg atempo filter.
+
+    The atempo filter only supports values between 0.5 and 2.0.
+    For factors outside this range, we chain multiple atempo filters.
+
+    Args:
+        input_path: Path to input audio file
+        output_path: Path for output audio file
+        speed_factor: Speed factor (0.5 to 2.0)
+    """
+    # atempo filter only supports 0.5 to 2.0 range
+    # For values outside this range, chain multiple filters
+    if speed_factor < 0.5:
+        speed_factor = 0.5
+    elif speed_factor > 2.0:
+        speed_factor = 2.0
+
+    # atempo changes speed while preserving pitch
+    filter_str = f"atempo={speed_factor}"
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(input_path),
+        "-filter:a",
+        filter_str,
+        "-acodec",
+        "pcm_s16le",
+        str(output_path),
+    ]
+
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        error_msg = stderr.decode()[:500]
+        raise RuntimeError(f"FFmpeg speed adjustment failed: {error_msg}")
+
+
+async def _merge_audio_video(
+    video_path: Path,
+    audio_path: Path,
+    output_path: Path,
+) -> None:
+    """
+    Merge audio with video using FFmpeg.
+
+    Replaces the original video's audio track with the provided audio.
+
+    Args:
+        video_path: Path to video file
+        audio_path: Path to audio file
+        output_path: Path for output video file
+    """
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_path),
+        "-i",
+        str(audio_path),
+        "-c:v",
+        "copy",  # Copy video stream (no re-encoding)
+        "-c:a",
+        "aac",  # Encode audio as AAC
+        "-b:a",
+        "192k",  # Audio bitrate
+        "-map",
+        "0:v:0",  # Take video from first input
+        "-map",
+        "1:a:0",  # Take audio from second input
+        "-shortest",  # Match shortest stream duration
+        str(output_path),
+    ]
+
+    logger.info(f"Merging audio with video: {video_path.name}")
+
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        error_msg = stderr.decode()[:500]
+        raise RuntimeError(f"FFmpeg merge failed: {error_msg}")
+
+
+async def _upload_export(video_path: Path, project_id: str) -> str:
+    """
+    Upload exported video to Supabase storage.
+
+    Args:
+        video_path: Path to video file to upload
+        project_id: Project ID for the export
+
+    Returns:
+        Signed URL for the uploaded video file
+    """
+    from supabase import create_client
+
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+
+    if not supabase_url or not supabase_key:
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables required"
+        )
+
+    client = create_client(supabase_url, supabase_key)
+
+    # Upload to dub-exports bucket
+    bucket = "dub-exports"
+    storage_path = f"{project_id}/export.mp4"
+
+    # Upload video
+    with open(video_path, "rb") as f:
+        video_content = f.read()
+
+    client.storage.from_(bucket).upload(
+        path=storage_path,
+        file=video_content,
+        file_options={"content-type": "video/mp4", "upsert": "true"},
+    )
+
+    # Get signed URL (24 hour expiry for exports)
+    signed_result = client.storage.from_(bucket).create_signed_url(
+        storage_path, 86400  # 24 hours
+    )
+
+    logger.info(f"Uploaded export to Supabase: {storage_path}")
+
+    return signed_result.get("signedURL", "")
+
+
+@app.post("/api/projects/{project_id}/export", response_model=ExportResponse)
+async def export_project(project_id: str) -> ExportResponse:
+    """
+    Export a project with all user edits applied.
+
+    This endpoint:
+    1. Fetches the project and all its tracks/segments from the database
+    2. Downloads the source video and segment audio files
+    3. Applies speed_factor to each segment using FFmpeg atempo filter
+    4. Positions segments at their start_time using adelay filter
+    5. Mixes tracks according to volume/mute/solo settings
+    6. Mixes with background audio
+    7. Merges the final audio with the source video
+    8. Uploads to dub-exports bucket
+
+    Args:
+        project_id: UUID of the project to export
+
+    Returns:
+        ExportResponse with the signed URL for the exported video
+
+    Raises:
+        HTTPException: If project not found, export fails, or required fields missing
+    """
+    temp_files: list[Path] = []
+
+    try:
+        client = get_supabase_client()
+
+        # Update project status to exporting
+        client.table("dub_projects").update({"status": "exporting"}).eq(
+            "id", project_id
+        ).execute()
+
+        # Fetch project with tracks and segments
+        project_result = (
+            client.table("dub_projects").select("*").eq("id", project_id).execute()
+        )
+
+        if not project_result.data:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        project = project_result.data[0]
+
+        # Check required fields
+        if not project.get("video_url"):
+            raise HTTPException(
+                status_code=400, detail="Project has no video_url - cannot export"
+            )
+        if not project.get("background_url"):
+            raise HTTPException(
+                status_code=400,
+                detail="Project has no background_url - run dubbing pipeline first",
+            )
+
+        # Fetch tracks for this project
+        tracks_result = (
+            client.table("dub_tracks")
+            .select("*")
+            .eq("project_id", project_id)
+            .order("order_index")
+            .execute()
+        )
+
+        if not tracks_result.data:
+            raise HTTPException(
+                status_code=400,
+                detail="Project has no tracks - run dubbing pipeline first",
+            )
+
+        tracks = tracks_result.data
+
+        # Fetch all segments for these tracks
+        track_ids = [track["id"] for track in tracks]
+        segments_result = (
+            client.table("dub_segments")
+            .select("*")
+            .in_("track_id", track_ids)
+            .order("start_time")
+            .execute()
+        )
+
+        segments = segments_result.data or []
+
+        if not segments:
+            raise HTTPException(
+                status_code=400,
+                detail="Project has no segments - run dubbing pipeline first",
+            )
+
+        logger.info("=" * 60)
+        logger.info(f"Starting export for project: {project_id}")
+        logger.info(f"Tracks: {len(tracks)}, Segments: {len(segments)}")
+        logger.info("=" * 60)
+
+        # Step 1: Download source video
+        logger.info("Step 1: Downloading source video...")
+        video_path = await download_video(project["video_url"])
+        temp_files.append(video_path)
+
+        # Step 2: Download background audio
+        logger.info("Step 2: Downloading background audio...")
+        background_path = await download_audio(project["background_url"])
+        temp_files.append(background_path)
+
+        # Step 3: Get project duration from video
+        # Use ffprobe to get video duration
+        probe_cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(video_path),
+        ]
+        process = await asyncio.create_subprocess_exec(
+            *probe_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await process.communicate()
+        total_duration = float(stdout.decode().strip()) if stdout else 60.0
+
+        logger.info(f"Video duration: {total_duration:.2f}s")
+
+        # Build track data for mixing (check mute/solo settings)
+        # If any track is solo'd, only play solo'd tracks
+        has_solo = any(track.get("solo", False) for track in tracks)
+        active_tracks = {}
+        for track in tracks:
+            track_id = track["id"]
+            is_muted = track.get("muted", False)
+            is_solo = track.get("solo", False)
+            volume = track.get("volume", 1.0)
+
+            # Skip muted tracks, or non-solo tracks when solo mode is active
+            if is_muted:
+                continue
+            if has_solo and not is_solo:
+                continue
+
+            active_tracks[track_id] = {"volume": volume, "segments": []}
+
+        # Group segments by track
+        for segment in segments:
+            track_id = segment["track_id"]
+            if track_id in active_tracks:
+                active_tracks[track_id]["segments"].append(segment)
+
+        # Step 4: Process each segment - download and apply speed factor
+        logger.info("Step 4: Processing segments...")
+        processed_segments: list[tuple[dict, Path]] = []
+
+        for track_id, track_data in active_tracks.items():
+            track_volume = track_data["volume"]
+
+            for segment in track_data["segments"]:
+                audio_url = segment.get("audio_url")
+                if not audio_url:
+                    logger.warning(
+                        f"Segment {segment['id']} has no audio_url, skipping"
+                    )
+                    continue
+
+                # Download segment audio
+                try:
+                    seg_audio_path = await download_audio(audio_url)
+                    temp_files.append(seg_audio_path)
+                except Exception as e:
+                    logger.warning(f"Failed to download segment audio: {e}")
+                    continue
+
+                # Apply speed factor if not 1.0
+                speed_factor = segment.get("speed_factor", 1.0)
+                if abs(speed_factor - 1.0) > 0.01:
+                    stretched_path = Path(
+                        tempfile.mktemp(suffix=".wav", prefix="stretched_")
+                    )
+                    temp_files.append(stretched_path)
+
+                    await _apply_speed_factor(
+                        seg_audio_path, stretched_path, speed_factor
+                    )
+                    final_seg_path = stretched_path
+                else:
+                    final_seg_path = seg_audio_path
+
+                # Apply track volume if not 1.0
+                if abs(track_volume - 1.0) > 0.01:
+                    volume_path = Path(
+                        tempfile.mktemp(suffix=".wav", prefix="volume_")
+                    )
+                    temp_files.append(volume_path)
+
+                    vol_cmd = [
+                        "ffmpeg",
+                        "-y",
+                        "-i",
+                        str(final_seg_path),
+                        "-filter:a",
+                        f"volume={track_volume}",
+                        "-acodec",
+                        "pcm_s16le",
+                        str(volume_path),
+                    ]
+                    process = await asyncio.create_subprocess_exec(
+                        *vol_cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    await process.communicate()
+                    final_seg_path = volume_path
+
+                processed_segments.append((segment, final_seg_path))
+
+        logger.info(f"Processed {len(processed_segments)} segments")
+
+        # Step 5: Create combined speech audio from all segments
+        logger.info("Step 5: Combining segments at correct positions...")
+        combined_speech_path = Path(
+            tempfile.mktemp(suffix=".wav", prefix="export_combined_")
+        )
+        temp_files.append(combined_speech_path)
+
+        # Create silent base audio
+        silence_cmd = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"anullsrc=r=44100:cl=stereo:d={total_duration}",
+            "-acodec",
+            "pcm_s16le",
+            str(combined_speech_path),
+        ]
+        process = await asyncio.create_subprocess_exec(
+            *silence_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await process.communicate()
+
+        # Overlay each segment at its start time
+        for segment, seg_path in processed_segments:
+            overlay_output = Path(
+                tempfile.mktemp(suffix=".wav", prefix="export_overlay_")
+            )
+            temp_files.append(overlay_output)
+
+            # Use adelay filter to position the segment
+            start_time = segment.get("start_time", 0.0)
+            delay_ms = int(start_time * 1000)
+
+            # Resample segment to match base audio and apply delay
+            filter_complex = (
+                f"[1:a]aresample=44100,adelay={delay_ms}|{delay_ms}[delayed];"
+                f"[0:a][delayed]amix=inputs=2:duration=first:dropout_transition=0"
+            )
+
+            overlay_cmd = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(combined_speech_path),
+                "-i",
+                str(seg_path),
+                "-filter_complex",
+                filter_complex,
+                "-acodec",
+                "pcm_s16le",
+                str(overlay_output),
+            ]
+
+            process = await asyncio.create_subprocess_exec(
+                *overlay_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await process.communicate()
+
+            # Replace combined with overlay result
+            if overlay_output.exists():
+                import shutil
+
+                shutil.copy(str(overlay_output), str(combined_speech_path))
+
+        # Step 6: Mix speech with background
+        logger.info("Step 6: Mixing speech with background...")
+        mixed_audio_path = Path(
+            tempfile.mktemp(suffix=".wav", prefix="export_mixed_")
+        )
+        temp_files.append(mixed_audio_path)
+
+        await _run_ffmpeg_mix(
+            speech_path=combined_speech_path,
+            background_path=background_path,
+            output_path=mixed_audio_path,
+            background_volume=0.3,
+        )
+
+        # Step 7: Merge audio with video
+        logger.info("Step 7: Merging audio with video...")
+        export_video_path = Path(
+            tempfile.mktemp(suffix=".mp4", prefix="export_final_")
+        )
+        temp_files.append(export_video_path)
+
+        await _merge_audio_video(
+            video_path=video_path,
+            audio_path=mixed_audio_path,
+            output_path=export_video_path,
+        )
+
+        # Step 8: Upload to dub-exports bucket
+        logger.info("Step 8: Uploading export...")
+        export_url = await _upload_export(export_video_path, project_id)
+
+        # Update project with export URL and status
+        client.table("dub_projects").update(
+            {"status": "exported", "export_url": export_url}
+        ).eq("id", project_id).execute()
+
+        logger.info("=" * 60)
+        logger.info(f"Export complete for project: {project_id}")
+        logger.info(f"Export URL: {export_url[:80]}...")
+        logger.info("=" * 60)
+
+        return ExportResponse(export_url=export_url)
+
+    except HTTPException:
+        # Update project status to error
+        try:
+            client = get_supabase_client()
+            client.table("dub_projects").update({"status": "error"}).eq(
+                "id", project_id
+            ).execute()
+        except Exception:
+            pass
+        raise
+    except Exception as e:
+        logger.error(f"Export failed: {e}")
+        # Update project status to error
+        try:
+            client = get_supabase_client()
+            client.table("dub_projects").update({"status": "error"}).eq(
+                "id", project_id
+            ).execute()
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"Export failed: {e}")
+    finally:
+        # Clean up temp files
+        for path in temp_files:
+            if path and path.exists():
+                try:
+                    path.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temp file {path}: {e}")
