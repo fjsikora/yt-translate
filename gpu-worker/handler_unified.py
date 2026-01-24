@@ -321,6 +321,23 @@ class SegmentResponse(BaseModel):
     updated_at: str = Field(..., description="Last update timestamp")
 
 
+class SegmentUpdate(BaseModel):
+    """Request model for updating segment timing from the editor."""
+
+    start_time: float | None = Field(
+        default=None, ge=0.0, description="Start time in seconds (must be >= 0)"
+    )
+    end_time: float | None = Field(
+        default=None, ge=0.0, description="End time in seconds (must be >= 0)"
+    )
+    speed_factor: float | None = Field(
+        default=None,
+        ge=0.5,
+        le=2.0,
+        description="Speed factor (0.5 to 2.0)",
+    )
+
+
 class TrackResponse(BaseModel):
     """Response model for a track."""
 
@@ -2760,3 +2777,103 @@ async def delete_project(project_id: str) -> dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to delete project: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete project: {e}")
+
+
+# =============================================================================
+# Segment CRUD Endpoints
+# =============================================================================
+
+
+def _format_segment(segment: dict[str, Any]) -> dict[str, Any]:
+    """Format a segment database row into a response-ready dict."""
+    return {
+        "id": segment["id"],
+        "track_id": segment["track_id"],
+        "speaker": segment.get("speaker"),
+        "original_text": segment.get("original_text"),
+        "translated_text": segment.get("translated_text"),
+        "start_time": segment.get("start_time", 0.0),
+        "end_time": segment.get("end_time", 0.0),
+        "speed_factor": segment.get("speed_factor", 1.0),
+        "audio_url": segment.get("audio_url"),
+        "order_index": segment.get("order_index", 0),
+        "created_at": segment.get("created_at", ""),
+        "updated_at": segment.get("updated_at", ""),
+    }
+
+
+@app.patch("/api/segments/{segment_id}", response_model=SegmentResponse)
+async def update_segment(segment_id: str, request: SegmentUpdate) -> SegmentResponse:
+    """
+    Update segment timing from the editor.
+
+    Validates timing constraints:
+    - end_time must be greater than start_time
+    - Timing values must be non-negative
+
+    The updated_at timestamp is automatically set by the database trigger.
+
+    Args:
+        segment_id: UUID of the segment to update
+        request: SegmentUpdate with timing fields to update
+
+    Returns:
+        SegmentResponse with updated segment details
+
+    Raises:
+        HTTPException: If segment not found, validation fails, or update fails
+    """
+    try:
+        client = get_supabase_client()
+
+        # First, get the current segment to validate timing changes
+        current_result = (
+            client.table("dub_segments").select("*").eq("id", segment_id).execute()
+        )
+
+        if not current_result.data:
+            raise HTTPException(status_code=404, detail="Segment not found")
+
+        current_segment = current_result.data[0]
+
+        # Build update data (only include non-None fields)
+        update_data: dict[str, Any] = {}
+        for field, value in request.model_dump().items():
+            if value is not None:
+                update_data[field] = value
+
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        # Calculate effective start and end times for validation
+        effective_start = update_data.get("start_time", current_segment["start_time"])
+        effective_end = update_data.get("end_time", current_segment["end_time"])
+
+        # Validate timing constraint: end must be greater than start
+        if effective_end <= effective_start:
+            raise HTTPException(
+                status_code=400,
+                detail=f"end_time ({effective_end}) must be greater than start_time ({effective_start})",
+            )
+
+        # Update segment
+        result = (
+            client.table("dub_segments")
+            .update(update_data)
+            .eq("id", segment_id)
+            .execute()
+        )
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Segment not found")
+
+        segment = result.data[0]
+        logger.info(f"Updated segment: {segment_id}")
+
+        return SegmentResponse(**_format_segment(segment))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update segment: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update segment: {e}")
