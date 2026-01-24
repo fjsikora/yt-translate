@@ -213,18 +213,23 @@ export default function EditorPage({ params }: EditorPageProps) {
 
   // Save segment timing to API (shared by drag-drop and trim operations)
   const saveSegmentTiming = useCallback(
-    async (segmentId: string, startTime: number, endTime: number) => {
+    async (segmentId: string, startTime: number, endTime: number, speedFactor?: number) => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const body: Record<string, number> = {
+          start_time: startTime,
+          end_time: endTime,
+        };
+        if (speedFactor !== undefined) {
+          body.speed_factor = speedFactor;
+        }
+
         const response = await fetch(`${apiUrl}/api/segments/${segmentId}`, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            start_time: startTime,
-            end_time: endTime,
-          }),
+          body: JSON.stringify(body),
         });
 
         if (!response.ok) {
@@ -286,6 +291,30 @@ export default function EditorPage({ params }: EditorPageProps) {
 
       // Save to API
       await saveSegmentTiming(segmentId, startTime, endTime);
+    },
+    [pushHistory, saveSegmentTiming]
+  );
+
+  // Handle segment stretch (Alt+drag edge resizing with speed_factor change)
+  const handleSegmentStretch = useCallback(
+    async (segmentId: string, startTime: number, endTime: number, speedFactor: number) => {
+      // Push current state to history before making changes
+      pushHistory();
+
+      // Update local state immediately for responsive UI
+      setTracks((prev) =>
+        prev.map((track) => ({
+          ...track,
+          segments: track.segments.map((segment) =>
+            segment.id === segmentId
+              ? { ...segment, start_time: startTime, end_time: endTime, speed_factor: speedFactor }
+              : segment
+          ),
+        }))
+      );
+
+      // Save to API with speed_factor
+      await saveSegmentTiming(segmentId, startTime, endTime, speedFactor);
     },
     [pushHistory, saveSegmentTiming]
   );
@@ -648,6 +677,7 @@ export default function EditorPage({ params }: EditorPageProps) {
                 onSegmentSelect={handleSegmentSelect}
                 onSegmentDrop={handleSegmentDrop}
                 onSegmentTrim={handleSegmentTrim}
+                onSegmentStretch={handleSegmentStretch}
                 selectedSegmentId={selectedSegmentId}
               />
             </div>

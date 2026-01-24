@@ -8,6 +8,13 @@ import {
 } from "@twick/timeline";
 import { cn } from "@/lib/utils";
 import { SegmentWaveform } from "./SegmentWaveform";
+import {
+  calculateSpeedFactor,
+  MIN_SPEED_FACTOR,
+  MAX_SPEED_FACTOR,
+  previewAudioAtSpeed,
+  stopPreview,
+} from "@/lib/audio-stretch";
 
 // Types matching the project data structure
 export interface TimelineSegment {
@@ -53,6 +60,20 @@ interface TrimState {
   currentTimeDelta: number;
 }
 
+// Stretch state interface for segment time-stretching (Alt+drag)
+interface StretchState {
+  segmentId: string;
+  trackId: string;
+  edge: "left" | "right";
+  initialStartTime: number;
+  initialEndTime: number;
+  initialSpeedFactor: number;
+  stretchStartX: number;
+  currentTimeDelta: number;
+  currentSpeedFactor: number;
+  audioUrl?: string;
+}
+
 // Minimum segment duration in seconds
 const MIN_SEGMENT_DURATION = 0.1;
 
@@ -66,6 +87,7 @@ interface TimelineProps {
   onSegmentSelect?: (segment: TimelineSegment | null) => void;
   onSegmentDrop?: (segmentId: string, startTime: number, endTime: number) => void;
   onSegmentTrim?: (segmentId: string, startTime: number, endTime: number) => void;
+  onSegmentStretch?: (segmentId: string, startTime: number, endTime: number, speedFactor: number) => void;
   selectedSegmentId?: string | null;
 }
 
@@ -130,6 +152,7 @@ function TimelineInner({
   onSegmentSelect,
   onSegmentDrop,
   onSegmentTrim,
+  onSegmentStretch,
   selectedSegmentId,
 }: TimelineProps) {
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -148,6 +171,10 @@ function TimelineInner({
   // Trim state for segment edge resizing
   const [trimState, setTrimState] = useState<TrimState | null>(null);
   const isTrimming = trimState !== null;
+
+  // Stretch state for segment time-stretching (Alt+drag)
+  const [stretchState, setStretchState] = useState<StretchState | null>(null);
+  const isStretching = stretchState !== null;
 
   // Handle scroll wheel zoom
   const handleWheel = useCallback(
@@ -368,6 +395,191 @@ function TimelineInner({
     }
   }, [isTrimming, handleTrimMove, handleTrimEnd]);
 
+  // Handle stretch start (Alt+drag on edge)
+  const handleStretchStart = useCallback(
+    (e: React.MouseEvent, segment: TimelineSegment, edge: "left" | "right") => {
+      e.stopPropagation();
+      e.preventDefault();
+
+      setStretchState({
+        segmentId: segment.id,
+        trackId: segment.track_id,
+        edge,
+        initialStartTime: segment.start_time,
+        initialEndTime: segment.end_time,
+        initialSpeedFactor: segment.speed_factor,
+        stretchStartX: e.clientX,
+        currentTimeDelta: 0,
+        currentSpeedFactor: segment.speed_factor,
+        audioUrl: segment.audio_url,
+      });
+
+      // Select the segment being stretched
+      onSegmentSelect?.(segment);
+    },
+    [onSegmentSelect]
+  );
+
+  // Handle mouse move during stretch
+  const handleStretchMove = useCallback(
+    (e: MouseEvent) => {
+      if (!stretchState) return;
+
+      const deltaX = e.clientX - stretchState.stretchStartX;
+      const timeDelta = deltaX / pixelsPerSecond;
+
+      // Calculate new times based on which edge is being dragged
+      let newStartTime = stretchState.initialStartTime;
+      let newEndTime = stretchState.initialEndTime;
+
+      if (stretchState.edge === "left") {
+        // Dragging left edge: changes start time and duration
+        newStartTime = stretchState.initialStartTime + timeDelta;
+        // Clamp: can't go below 0 and can't make segment shorter than MIN_SEGMENT_DURATION
+        newStartTime = Math.max(0, newStartTime);
+        newStartTime = Math.min(newStartTime, stretchState.initialEndTime - MIN_SEGMENT_DURATION);
+      } else {
+        // Dragging right edge: changes end time and duration
+        newEndTime = stretchState.initialEndTime + timeDelta;
+        // Clamp: can't exceed duration and can't make segment shorter than MIN_SEGMENT_DURATION
+        newEndTime = Math.min(duration, newEndTime);
+        newEndTime = Math.max(newEndTime, stretchState.initialStartTime + MIN_SEGMENT_DURATION);
+      }
+
+      // Calculate new duration and speed factor
+      const originalDuration = stretchState.initialEndTime - stretchState.initialStartTime;
+      const newDuration = newEndTime - newStartTime;
+
+      // Calculate new speed factor
+      const newSpeedFactor = calculateSpeedFactor(
+        originalDuration,
+        newDuration,
+        stretchState.initialSpeedFactor
+      );
+
+      // Enforce speed factor limits by adjusting the duration
+      let clampedSpeedFactor = newSpeedFactor;
+      let adjustedStartTime = newStartTime;
+      let adjustedEndTime = newEndTime;
+
+      if (newSpeedFactor < MIN_SPEED_FACTOR || newSpeedFactor > MAX_SPEED_FACTOR) {
+        clampedSpeedFactor = Math.max(MIN_SPEED_FACTOR, Math.min(MAX_SPEED_FACTOR, newSpeedFactor));
+        // Recalculate the allowed duration based on clamped speed
+        const originalAudioDuration = originalDuration * stretchState.initialSpeedFactor;
+        const allowedDuration = originalAudioDuration / clampedSpeedFactor;
+
+        if (stretchState.edge === "left") {
+          adjustedStartTime = stretchState.initialEndTime - allowedDuration;
+          adjustedStartTime = Math.max(0, adjustedStartTime);
+        } else {
+          adjustedEndTime = stretchState.initialStartTime + allowedDuration;
+          adjustedEndTime = Math.min(duration, adjustedEndTime);
+        }
+      }
+
+      // Calculate actual delta from initial values
+      const actualDelta = stretchState.edge === "left"
+        ? adjustedStartTime - stretchState.initialStartTime
+        : adjustedEndTime - stretchState.initialEndTime;
+
+      setStretchState((prev) =>
+        prev ? { ...prev, currentTimeDelta: actualDelta, currentSpeedFactor: clampedSpeedFactor } : null
+      );
+    },
+    [stretchState, pixelsPerSecond, duration]
+  );
+
+  // Handle mouse up to finish stretch
+  const handleStretchEnd = useCallback(() => {
+    if (!stretchState) return;
+
+    // Stop audio preview
+    stopPreview();
+
+    let newStartTime = stretchState.initialStartTime;
+    let newEndTime = stretchState.initialEndTime;
+
+    if (stretchState.edge === "left") {
+      newStartTime = stretchState.initialStartTime + stretchState.currentTimeDelta;
+      // Final clamp
+      newStartTime = Math.max(0, newStartTime);
+      newStartTime = Math.min(newStartTime, stretchState.initialEndTime - MIN_SEGMENT_DURATION);
+    } else {
+      newEndTime = stretchState.initialEndTime + stretchState.currentTimeDelta;
+      // Final clamp
+      newEndTime = Math.min(duration, newEndTime);
+      newEndTime = Math.max(newEndTime, stretchState.initialStartTime + MIN_SEGMENT_DURATION);
+    }
+
+    // Only trigger callback if timing actually changed
+    if (Math.abs(stretchState.currentTimeDelta) > 0.01) {
+      if (onSegmentStretch) {
+        onSegmentStretch(
+          stretchState.segmentId,
+          newStartTime,
+          newEndTime,
+          stretchState.currentSpeedFactor
+        );
+      }
+    }
+
+    setStretchState(null);
+  }, [stretchState, duration, onSegmentStretch]);
+
+  // Preview audio during stretch (debounced)
+  const previewTimeoutRef = useRef<number | null>(null);
+  const lastPreviewSpeedRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    // Only preview if we have stretch state with audio
+    if (!stretchState || !stretchState.audioUrl) {
+      return;
+    }
+
+    // Only trigger preview if speed actually changed significantly
+    const speedDelta = lastPreviewSpeedRef.current !== null
+      ? Math.abs(stretchState.currentSpeedFactor - lastPreviewSpeedRef.current)
+      : 1;
+
+    if (speedDelta < 0.05) {
+      return; // Skip preview for tiny changes
+    }
+
+    // Clear any pending preview
+    if (previewTimeoutRef.current) {
+      window.clearTimeout(previewTimeoutRef.current);
+    }
+
+    // Debounce the preview to avoid too many audio loads
+    const audioUrl = stretchState.audioUrl;
+    const speedFactor = stretchState.currentSpeedFactor;
+
+    previewTimeoutRef.current = window.setTimeout(() => {
+      lastPreviewSpeedRef.current = speedFactor;
+      previewAudioAtSpeed(audioUrl, speedFactor, 0, 0.5).catch(console.error);
+    }, 150);
+
+    return () => {
+      if (previewTimeoutRef.current) {
+        window.clearTimeout(previewTimeoutRef.current);
+      }
+    };
+  }, [stretchState]);
+
+  // Attach stretch event listeners
+  useEffect(() => {
+    if (isStretching) {
+      window.addEventListener("mousemove", handleStretchMove);
+      window.addEventListener("mouseup", handleStretchEnd);
+
+      return () => {
+        window.removeEventListener("mousemove", handleStretchMove);
+        window.removeEventListener("mouseup", handleStretchEnd);
+        stopPreview();
+      };
+    }
+  }, [isStretching, handleStretchMove, handleStretchEnd]);
+
   // Handle click on timeline to seek
   const handleTimelineClick = (e: React.MouseEvent) => {
     if (tracksContainerRef.current) {
@@ -486,11 +698,14 @@ function TimelineInner({
                   const isSelected = selectedSegmentId === segment.id;
                   const isBeingDragged = dragState?.segmentId === segment.id;
                   const isBeingTrimmed = trimState?.segmentId === segment.id;
+                  const isBeingStretched = stretchState?.segmentId === segment.id;
                   const trimEdge = isBeingTrimmed ? trimState.edge : null;
+                  const stretchEdge = isBeingStretched ? stretchState.edge : null;
 
-                  // Calculate segment dimensions considering trim state
+                  // Calculate segment dimensions considering trim or stretch state
                   let effectiveStartTime = segment.start_time;
                   let effectiveEndTime = segment.end_time;
+                  let displaySpeedFactor = segment.speed_factor;
 
                   if (isBeingTrimmed) {
                     if (trimState.edge === "left") {
@@ -500,6 +715,15 @@ function TimelineInner({
                       effectiveEndTime = Math.min(duration, segment.end_time + trimState.currentTimeDelta);
                       effectiveEndTime = Math.max(effectiveEndTime, segment.start_time + MIN_SEGMENT_DURATION);
                     }
+                  } else if (isBeingStretched) {
+                    if (stretchState.edge === "left") {
+                      effectiveStartTime = Math.max(0, segment.start_time + stretchState.currentTimeDelta);
+                      effectiveStartTime = Math.min(effectiveStartTime, segment.end_time - MIN_SEGMENT_DURATION);
+                    } else {
+                      effectiveEndTime = Math.min(duration, segment.end_time + stretchState.currentTimeDelta);
+                      effectiveEndTime = Math.max(effectiveEndTime, segment.start_time + MIN_SEGMENT_DURATION);
+                    }
+                    displaySpeedFactor = stretchState.currentSpeedFactor;
                   }
 
                   const segmentWidth = (effectiveEndTime - effectiveStartTime) * pixelsPerSecond;
@@ -514,7 +738,7 @@ function TimelineInner({
                   // Determine cursor based on current interaction
                   const getCursor = () => {
                     if (isBeingDragged) return "cursor-grabbing";
-                    if (isBeingTrimmed) return "cursor-ew-resize";
+                    if (isBeingTrimmed || isBeingStretched) return "cursor-ew-resize";
                     return "cursor-grab";
                   };
 
@@ -530,24 +754,35 @@ function TimelineInner({
                         isSelected && "ring-2 ring-primary ring-offset-1",
                         isBeingDragged && "opacity-80 shadow-lg z-30",
                         isBeingTrimmed && "opacity-90 shadow-md z-30",
+                        isBeingStretched && "opacity-90 shadow-md z-30 ring-2 ring-orange-500/50",
                         getCursor()
                       )}
                       style={{
                         left: `${left}px`,
                         width: `${displayWidth}px`,
-                        transition: (isBeingDragged || isBeingTrimmed) ? "none" : "box-shadow 150ms, opacity 150ms",
+                        transition: (isBeingDragged || isBeingTrimmed || isBeingStretched) ? "none" : "box-shadow 150ms, opacity 150ms",
                       }}
                       onClick={(e) => handleSegmentClick(e, segment)}
                       onMouseDown={(e) => {
-                        // Check if click is near edges (within 8px) for trim
+                        // Check if click is near edges (within 8px) for trim/stretch
                         const rect = e.currentTarget.getBoundingClientRect();
                         const relativeX = e.clientX - rect.left;
-                        const trimZone = 8; // pixels
+                        const edgeZone = 8; // pixels
 
-                        if (relativeX <= trimZone) {
-                          handleTrimStart(e, segment, "left");
-                        } else if (relativeX >= rect.width - trimZone) {
-                          handleTrimStart(e, segment, "right");
+                        if (relativeX <= edgeZone) {
+                          // Alt+drag on edge = stretch, regular drag on edge = trim
+                          if (e.altKey) {
+                            handleStretchStart(e, segment, "left");
+                          } else {
+                            handleTrimStart(e, segment, "left");
+                          }
+                        } else if (relativeX >= rect.width - edgeZone) {
+                          // Alt+drag on edge = stretch, regular drag on edge = trim
+                          if (e.altKey) {
+                            handleStretchStart(e, segment, "right");
+                          } else {
+                            handleTrimStart(e, segment, "right");
+                          }
                         } else {
                           handleSegmentDragStart(e, segment);
                         }
@@ -565,12 +800,19 @@ function TimelineInner({
                           "opacity-0 group-hover:opacity-100 transition-opacity",
                           "bg-primary/30 hover:bg-primary/50",
                           "flex items-center justify-center",
-                          trimEdge === "left" && "opacity-100 bg-primary/60"
+                          (trimEdge === "left" || stretchEdge === "left") && "opacity-100",
+                          trimEdge === "left" && "bg-primary/60",
+                          stretchEdge === "left" && "bg-orange-500/60"
                         )}
                         onMouseDown={(e) => {
                           e.stopPropagation();
-                          handleTrimStart(e, segment, "left");
+                          if (e.altKey) {
+                            handleStretchStart(e, segment, "left");
+                          } else {
+                            handleTrimStart(e, segment, "left");
+                          }
                         }}
+                        title="Drag to trim, Alt+Drag to stretch"
                       >
                         <div className="w-0.5 h-6 bg-primary/80 rounded-full" />
                       </div>
@@ -582,12 +824,19 @@ function TimelineInner({
                           "opacity-0 group-hover:opacity-100 transition-opacity",
                           "bg-primary/30 hover:bg-primary/50",
                           "flex items-center justify-center",
-                          trimEdge === "right" && "opacity-100 bg-primary/60"
+                          (trimEdge === "right" || stretchEdge === "right") && "opacity-100",
+                          trimEdge === "right" && "bg-primary/60",
+                          stretchEdge === "right" && "bg-orange-500/60"
                         )}
                         onMouseDown={(e) => {
                           e.stopPropagation();
-                          handleTrimStart(e, segment, "right");
+                          if (e.altKey) {
+                            handleStretchStart(e, segment, "right");
+                          } else {
+                            handleTrimStart(e, segment, "right");
+                          }
                         }}
+                        title="Drag to trim, Alt+Drag to stretch"
                       >
                         <div className="w-0.5 h-6 bg-primary/80 rounded-full" />
                       </div>
@@ -627,9 +876,12 @@ function TimelineInner({
                             "\u00A0"}
                         </span>
                         {/* Speed factor indicator */}
-                        {segment.speed_factor !== 1.0 && (
-                          <span className="mt-1 text-[10px] text-muted-foreground">
-                            {segment.speed_factor.toFixed(2)}x
+                        {(displaySpeedFactor !== 1.0 || isBeingStretched) && (
+                          <span className={cn(
+                            "mt-1 text-[10px]",
+                            isBeingStretched ? "text-orange-500 font-medium" : "text-muted-foreground"
+                          )}>
+                            {displaySpeedFactor.toFixed(2)}x
                           </span>
                         )}
                       </div>
