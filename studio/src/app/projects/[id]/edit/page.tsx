@@ -28,6 +28,7 @@ import {
   AlertCircle,
   Loader2,
   Check,
+  HelpCircle,
 } from "lucide-react";
 
 // Types
@@ -484,7 +485,46 @@ export default function EditorPage({ params }: EditorPageProps) {
     }
   }, []);
 
-  // Keyboard shortcuts for undo/redo
+  // Delete selected segment
+  const handleDeleteSegment = useCallback(async () => {
+    if (!selectedSegmentId) return;
+
+    // Push current state to history before deleting
+    pushHistory();
+
+    // Remove the segment from tracks
+    setTracks((prev) =>
+      prev.map((track) => ({
+        ...track,
+        segments: track.segments.filter((s) => s.id !== selectedSegmentId),
+      }))
+    );
+
+    // Clear selection
+    setSelectedSegmentId(null);
+    setSelectedSegment(null);
+
+    // Delete from API
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/api/segments/${selectedSegmentId}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.detail || `Failed to delete segment: ${response.statusText}`
+        );
+      }
+    } catch (err) {
+      console.error("Failed to delete segment:", err);
+      setError(err instanceof Error ? err.message : "Failed to delete segment");
+      // Note: Could add rollback here using undo, but for now we just show error
+    }
+  }, [selectedSegmentId, pushHistory]);
+
+  // Keyboard shortcuts for undo/redo/delete
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Check if we're focused on an input element
@@ -512,11 +552,17 @@ export default function EditorPage({ params }: EditorPageProps) {
         e.preventDefault();
         handleRedo();
       }
+
+      // Delete or Backspace for deleting selected segment
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        handleDeleteSegment();
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleUndo, handleRedo]);
+  }, [handleUndo, handleRedo, handleDeleteSegment]);
 
   // Open export dialog
   const handleOpenExportDialog = () => {
@@ -672,6 +718,48 @@ export default function EditorPage({ params }: EditorPageProps) {
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Export final video</TooltipContent>
+            </Tooltip>
+
+            <div className="mx-2 h-6 w-px bg-border" />
+
+            {/* Keyboard shortcuts help */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <HelpCircle className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs" side="bottom" align="end">
+                <div className="space-y-2 text-xs">
+                  <p className="font-semibold">Keyboard Shortcuts</p>
+                  <div className="space-y-1">
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Play/Pause</span>
+                      <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono">Space</kbd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Seek -1 second</span>
+                      <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono">←</kbd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Seek +1 second</span>
+                      <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono">→</kbd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Undo</span>
+                      <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono">Ctrl+Z</kbd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Redo</span>
+                      <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono">Ctrl+Shift+Z</kbd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Delete segment</span>
+                      <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono">Delete</kbd>
+                    </div>
+                  </div>
+                </div>
+              </TooltipContent>
             </Tooltip>
           </div>
         </header>

@@ -2896,6 +2896,42 @@ async def update_segment(segment_id: str, request: SegmentUpdate) -> SegmentResp
         raise HTTPException(status_code=500, detail=f"Failed to update segment: {e}")
 
 
+@app.delete("/api/segments/{segment_id}")
+async def delete_segment(segment_id: str) -> dict[str, str]:
+    """
+    Delete a segment from the editor.
+
+    Returns:
+        {"status": "deleted", "id": segment_id}
+    """
+    try:
+        client = get_supabase_client()
+
+        # Check if segment exists
+        check_result = (
+            client.table("dub_segments")
+            .select("id")
+            .eq("id", segment_id)
+            .execute()
+        )
+
+        if not check_result.data:
+            raise HTTPException(status_code=404, detail="Segment not found")
+
+        # Delete segment
+        client.table("dub_segments").delete().eq("id", segment_id).execute()
+
+        logger.info(f"Deleted segment: {segment_id}")
+
+        return {"status": "deleted", "id": segment_id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete segment: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete segment: {e}")
+
+
 # =============================================================================
 # Track Update Endpoint
 # =============================================================================
