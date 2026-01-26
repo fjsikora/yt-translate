@@ -22,6 +22,7 @@ from typing import Any
 import httpx
 import psutil
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, HttpUrl
 
 # Configure logging
@@ -865,6 +866,15 @@ app = FastAPI(
     description="Unified AI pipeline for video dubbing",
     version="0.1.0",
     lifespan=lifespan,
+)
+
+# CORS middleware for frontend access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, restrict to specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
