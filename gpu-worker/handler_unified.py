@@ -223,6 +223,10 @@ class SynthesizeRequest(BaseModel):
     voice_sample_url: HttpUrl = Field(
         ..., description="URL of voice sample for cloning"
     )
+    language: str = Field(
+        default="en",
+        description="ISO 639-1 language code for synthesis (e.g., 'es', 'fr')",
+    )
     speed: float = Field(
         default=1.0,
         ge=0.5,
@@ -758,12 +762,12 @@ def load_pyannote() -> None:
 
 
 def load_chatterbox() -> None:
-    """Load Chatterbox TTS model for voice cloning."""
-    from chatterbox.tts import ChatterboxTTS
+    """Load multilingual Chatterbox TTS model for voice cloning."""
+    from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
     device = "cuda" if is_cuda_available() else "cpu"
-    logger.info(f"  → Loading Chatterbox TTS, device: {device}")
-    app_state.chatterbox_model = ChatterboxTTS.from_pretrained(device=device)
+    logger.info(f"  → Loading ChatterboxMultilingualTTS, device: {device}")
+    app_state.chatterbox_model = ChatterboxMultilingualTTS.from_pretrained(device=device)
     logger.info(f"  → Chatterbox sample rate: {app_state.chatterbox_model.sr} Hz")
 
 
@@ -1397,6 +1401,27 @@ TRANSLATION_MAX_SEGMENTS_PER_BATCH = 20
 TRANSLATION_TEMPERATURE = 0.3
 TRANSLATION_MAX_TOKENS = 4096
 
+# Language code to full name mapping (used in LLM prompts)
+LANGUAGE_NAMES: dict[str, str] = {
+    "en": "English",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "zh": "Chinese",
+    "ru": "Russian",
+    "ar": "Arabic",
+    "hi": "Hindi",
+}
+
+
+def _resolve_language_name(code_or_name: str) -> str:
+    """Convert a language code to its full name, or return as-is if already a name."""
+    return LANGUAGE_NAMES.get(code_or_name, code_or_name)
+
 
 @app.post("/translate", response_model=TranslateResponse)
 async def translate(request: TranslateRequest) -> TranslateResponse:
@@ -1611,6 +1636,7 @@ async def synthesize(request: SynthesizeRequest) -> SynthesizeResponse:
             _run_chatterbox_synthesis,
             request.text,
             str(voice_sample_path),
+            request.language,
         )
 
         # Save synthesized audio to temp file
@@ -1654,15 +1680,18 @@ async def synthesize(request: SynthesizeRequest) -> SynthesizeResponse:
                     logger.warning(f"Failed to clean up temp file: {e}")
 
 
-def _run_chatterbox_synthesis(text: str, voice_sample_path: str) -> tuple[Any, int]:
+def _run_chatterbox_synthesis(
+    text: str, voice_sample_path: str, language_id: str = "en"
+) -> tuple[Any, int]:
     """
-    Run Chatterbox TTS synthesis synchronously.
+    Run Chatterbox multilingual TTS synthesis synchronously.
 
     This function is meant to be run in a thread pool executor.
 
     Args:
         text: Text to synthesize
         voice_sample_path: Path to voice sample for cloning
+        language_id: ISO 639-1 language code (e.g., "es", "fr", "en")
 
     Returns:
         Tuple of (audio_array as numpy, sample_rate)
@@ -1672,9 +1701,10 @@ def _run_chatterbox_synthesis(text: str, voice_sample_path: str) -> tuple[Any, i
 
     model = app_state.chatterbox_model
 
-    # Generate audio with voice cloning
+    # Generate audio with voice cloning and target language
     wav = model.generate(
         text,
+        language_id=language_id,
         audio_prompt_path=voice_sample_path,
     )
 
@@ -2381,7 +2411,8 @@ async def dub(request: DubRequest) -> DubResponse:
         )
 
         # Step 5: Translate text
-        logger.info(f"Step 5/7: Translating to {request.target_lang}...")
+        target_language_name = _resolve_language_name(request.target_lang)
+        logger.info(f"Step 5/7: Translating to {target_language_name}...")
         if app_state.llama_model is None:
             raise HTTPException(status_code=503, detail="LLM model not loaded")
 
@@ -2403,7 +2434,7 @@ async def dub(request: DubRequest) -> DubResponse:
                 None,
                 _run_llama_translation,
                 transcript_lines,
-                request.target_lang,
+                target_language_name,
             )
             all_translations.update(batch_translations)
 
@@ -2431,6 +2462,7 @@ async def dub(request: DubRequest) -> DubResponse:
                     _run_chatterbox_synthesis,
                     translated_text,
                     str(vocals_path),  # Use vocals as voice sample
+                    request.target_lang,  # Target language code for multilingual TTS
                 )
             except Exception as synth_err:
                 logger.warning(
