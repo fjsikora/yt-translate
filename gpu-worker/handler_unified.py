@@ -2312,13 +2312,19 @@ async def dub(request: DubRequest) -> DubResponse:
             if not translated_text.strip():
                 continue
 
-            # Generate TTS
-            audio_array, tts_sample_rate = await loop.run_in_executor(
-                None,
-                _run_chatterbox_synthesis,
-                translated_text,
-                str(vocals_path),  # Use vocals as voice sample
-            )
+            # Generate TTS (with error handling for short/problematic segments)
+            try:
+                audio_array, tts_sample_rate = await loop.run_in_executor(
+                    None,
+                    _run_chatterbox_synthesis,
+                    translated_text,
+                    str(vocals_path),  # Use vocals as voice sample
+                )
+            except Exception as synth_err:
+                logger.warning(
+                    f"  → Skipping segment {i}: TTS synthesis failed: {synth_err}"
+                )
+                continue
 
             # Save to temp file
             segment_path = Path(
