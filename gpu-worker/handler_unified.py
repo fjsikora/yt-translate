@@ -2025,6 +2025,101 @@ async def _update_project_status(
         logger.warning(f"Failed to update project status: {e}")
 
 
+async def _save_pipeline_results(
+    project_id: str,
+    vocals_url: str,
+    background_url: str,
+    mixed_url: str,
+    duration: float,
+    segment_results: list["DubSegmentResult"],
+) -> None:
+    """
+    Save pipeline results to the database: update project fields and create
+    tracks + segments so the editor can display them.
+    """
+    try:
+        client = get_supabase_client()
+
+        # 1. Update project with audio URLs and duration
+        client.table("dub_projects").update({
+            "vocals_url": vocals_url,
+            "background_url": background_url,
+            "mixed_url": mixed_url,
+            "duration": duration,
+            "updated_at": "now()",
+        }).eq("id", project_id).execute()
+
+        logger.info(f"Updated project {project_id} with audio URLs and duration")
+
+        # 2. Create tracks
+        background_track = client.table("dub_tracks").insert({
+            "project_id": project_id,
+            "name": "Background Audio",
+            "type": "background",
+            "muted": False,
+            "solo": False,
+            "volume": 1.0,
+            "order_index": 0,
+        }).execute()
+
+        dubbed_track = client.table("dub_tracks").insert({
+            "project_id": project_id,
+            "name": "Dubbed Speech",
+            "type": "dubbed",
+            "muted": False,
+            "solo": False,
+            "volume": 1.0,
+            "order_index": 1,
+        }).execute()
+
+        background_track_id = background_track.data[0]["id"]
+        dubbed_track_id = dubbed_track.data[0]["id"]
+
+        logger.info(
+            f"Created tracks: background={background_track_id}, "
+            f"dubbed={dubbed_track_id}"
+        )
+
+        # 3. Create a single segment for the background track (full duration)
+        client.table("dub_segments").insert({
+            "track_id": background_track_id,
+            "speaker": None,
+            "original_text": None,
+            "translated_text": None,
+            "start_time": 0.0,
+            "end_time": duration,
+            "speed_factor": 1.0,
+            "audio_url": background_url,
+            "order_index": 0,
+        }).execute()
+
+        # 4. Create segments for the dubbed speech track
+        if segment_results:
+            segment_rows = [
+                {
+                    "track_id": dubbed_track_id,
+                    "speaker": seg.speaker,
+                    "original_text": seg.original_text,
+                    "translated_text": seg.translated_text,
+                    "start_time": seg.start_time,
+                    "end_time": seg.end_time,
+                    "speed_factor": 1.0,
+                    "audio_url": seg.audio_url,
+                    "order_index": seg.index,
+                }
+                for seg in segment_results
+            ]
+            client.table("dub_segments").insert(segment_rows).execute()
+
+        logger.info(
+            f"Created {len(segment_results)} dubbed segments + 1 background segment"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to save pipeline results to DB: {e}")
+        # Don't re-raise — the pipeline succeeded, status will still be set to ready
+
+
 async def _upload_segment_audio(audio_path: Path, project_id: str, index: int) -> str:
     """
     Upload a segment audio file to Supabase storage.
@@ -2060,7 +2155,9 @@ async def _upload_segment_audio(audio_path: Path, project_id: str, index: int) -
         file_options={"content-type": "audio/wav", "upsert": "true"},
     )
 
-    signed_result = client.storage.from_(bucket).create_signed_url(storage_path, 3600)
+    signed_result = client.storage.from_(bucket).create_signed_url(
+        storage_path, 86400 * 7
+    )
     return signed_result.get("signedURL", "")
 
 
@@ -2221,7 +2318,7 @@ async def dub(request: DubRequest) -> DubResponse:
         )
         logger.info("  → Separation complete: vocals and background uploaded")
 
-        # Upload a reference copy of vocals for voice cloning
+        # Upload project-specific copies of vocals and background
         vocals_storage_path = f"{project_id}/vocals.wav"
         with open(vocals_path, "rb") as f:
             vocals_content = f.read()
@@ -2230,8 +2327,21 @@ async def dub(request: DubRequest) -> DubResponse:
             file=vocals_content,
             file_options={"content-type": "audio/wav", "upsert": "true"},
         )
-        # Note: We just need vocals uploaded for later use, not the URL
-        _ = client.storage.from_(bucket).create_signed_url(vocals_storage_path, 3600)
+        vocals_project_url = client.storage.from_(bucket).create_signed_url(
+            vocals_storage_path, 86400 * 7
+        ).get("signedURL", vocals_url)
+
+        background_storage_path = f"{project_id}/background.wav"
+        with open(background_path, "rb") as f:
+            background_content = f.read()
+        client.storage.from_(bucket).upload(
+            path=background_storage_path,
+            file=background_content,
+            file_options={"content-type": "audio/wav", "upsert": "true"},
+        )
+        background_project_url = client.storage.from_(bucket).create_signed_url(
+            background_storage_path, 86400 * 7
+        ).get("signedURL", background_url)
 
         # Step 3: Run speaker diarization
         logger.info("Step 3/7: Running speaker diarization...")
@@ -2462,11 +2572,29 @@ async def dub(request: DubRequest) -> DubResponse:
             file_options={"content-type": "audio/wav", "upsert": "true"},
         )
         mixed_signed = client.storage.from_(bucket).create_signed_url(
-            mixed_storage_path, 3600
+            mixed_storage_path, 86400 * 7
         )
         mixed_url = mixed_signed.get("signedURL", "")
 
         logger.info(f"  → Final mix uploaded: {mixed_storage_path}")
+
+        # Compute total duration from segments or audio
+        pipeline_duration = (
+            max(seg.end_time for seg in segment_results) + 1.0
+            if segment_results
+            else 0.0
+        )
+
+        # Save tracks, segments, and audio URLs to the database
+        if request.project_id:
+            await _save_pipeline_results(
+                project_id=project_id,
+                vocals_url=vocals_project_url,
+                background_url=background_project_url,
+                mixed_url=mixed_url,
+                duration=pipeline_duration,
+                segment_results=segment_results,
+            )
 
         # Update project status to ready
         if request.project_id:
