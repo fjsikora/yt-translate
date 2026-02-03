@@ -620,7 +620,7 @@ async def extract_audio_from_video(video_path: Path) -> Path:
     _, stderr = await process.communicate()
 
     if process.returncode != 0:
-        error_msg = stderr.decode()[:500]
+        error_msg = stderr.decode()[:2000]
         raise RuntimeError(f"FFmpeg audio extraction failed: {error_msg}")
 
     logger.info(f"Audio extracted: {output_path.stat().st_size / 1e6:.1f}MB")
@@ -1893,12 +1893,14 @@ async def _run_ffmpeg_mix(
     # Build the FFmpeg filter for mixing
     # Resample both inputs to the same sample rate to avoid mixing issues
     # [0:a]aresample: Resample speech to target sample rate
-    # [1:a]aresample,apad,volume: Resample background, pad, and apply volume
+    # [1:a]aresample,volume: Resample background and apply volume
     # amix: Mix the two streams
-    # duration=longest: Output duration matches the longest input
+    # duration=longest: Output matches the longer input (background = full video)
+    # Note: Do NOT use apad here — it creates an infinite stream and causes
+    # duration=longest to produce infinite output, exhausting disk/memory.
     filter_complex = (
         f"[0:a]aresample={target_sr}[speech];"
-        f"[1:a]aresample={target_sr},apad,volume={background_volume}[bg];"
+        f"[1:a]aresample={target_sr},volume={background_volume}[bg];"
         f"[speech][bg]amix=inputs=2:duration=longest:dropout_transition=0"
     )
 
@@ -1931,7 +1933,7 @@ async def _run_ffmpeg_mix(
     _, stderr = await process.communicate()
 
     if process.returncode != 0:
-        error_msg = stderr.decode()[:500]
+        error_msg = stderr.decode()[:2000]
         raise RuntimeError(f"FFmpeg mixing failed: {error_msg}")
 
 
