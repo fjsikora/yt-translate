@@ -12,6 +12,7 @@ The server loads AI models on startup and reports their status.
 import asyncio
 import logging
 import os
+import re
 import signal
 import sys
 import tempfile
@@ -1399,7 +1400,7 @@ async def _upload_separated_audio(
 # Translation constants
 TRANSLATION_MAX_SEGMENTS_PER_BATCH = 20
 TRANSLATION_TEMPERATURE = 0.3
-TRANSLATION_MAX_TOKENS = 4096
+TRANSLATION_MAX_TOKENS = 8192
 
 # Language code to full name mapping (used in LLM prompts)
 LANGUAGE_NAMES: dict[str, str] = {
@@ -1544,7 +1545,8 @@ def _run_llama_translation(
     """
     transcript = "\n".join(transcript_lines)
 
-    prompt = f"""Translate the following numbered transcript lines to {target_language}.
+    prompt = f"""/no_think
+Translate the following numbered transcript lines to {target_language}.
 
 IMPORTANT RULES:
 1. Maintain the exact same line numbers in your output
@@ -1569,6 +1571,9 @@ Translate each line to {target_language}, keeping the same numbered format:"""
 
     # Extract response text
     response_text = output.get("choices", [{}])[0].get("text", "")
+
+    # Strip Qwen3 thinking blocks (model may emit <think>...</think> before answer)
+    response_text = re.sub(r"<think>.*?</think>", "", response_text, flags=re.DOTALL).strip()
 
     # Parse the numbered response back into translations
     translations: dict[int, str] = {}

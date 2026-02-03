@@ -105,10 +105,10 @@ RUN echo "Downloading Whisper large-v3 model (faster-whisper)..." && \
 RUN echo "Downloading Demucs htdemucs model..." && \
     python -c "from demucs.pretrained import get_model; get_model('htdemucs')"
 
-# 3. Chatterbox TTS models (~2GB)
+# 3. Chatterbox Multilingual TTS models (~2GB)
 # Downloaded from HuggingFace Hub on first use, but we pre-warm the cache
-RUN echo "Downloading Chatterbox TTS models..." && \
-    python -c "from chatterbox.tts import ChatterboxTTS; ChatterboxTTS.from_pretrained(device='cpu')" || \
+RUN echo "Downloading Chatterbox Multilingual TTS models..." && \
+    python -c "from chatterbox.mtl_tts import ChatterboxMultilingualTTS; ChatterboxMultilingualTTS.from_pretrained(device='cpu')" || \
     echo "Chatterbox will download on first use (some models require runtime download)"
 
 # 4. pyannote.audio models
