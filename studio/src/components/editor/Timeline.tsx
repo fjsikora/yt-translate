@@ -32,7 +32,7 @@ export interface TimelineSegment {
 export interface TimelineTrack {
   id: string;
   name: string;
-  type: "vocals" | "background" | "dubbed";
+  type: "vocals" | "background" | "dubbed" | "video";
   muted: boolean;
   solo: boolean;
   volume: number;
@@ -107,6 +107,11 @@ const TRACK_COLORS: Record<string, { bg: string; border: string; hover: string }
     bg: "bg-purple-500/20",
     border: "border-purple-500/40",
     hover: "hover:bg-purple-500/30",
+  },
+  video: {
+    bg: "bg-amber-500/20",
+    border: "border-amber-500/40",
+    hover: "hover:bg-amber-500/30",
   },
 };
 
@@ -628,34 +633,7 @@ function TimelineInner({
       ref={timelineRef}
       className="flex h-full flex-col overflow-hidden"
     >
-      {/* Time Ruler */}
-      <div className="flex h-8 shrink-0 border-b bg-muted/50">
-        <div
-          className="relative h-full cursor-pointer"
-          style={{ width: `${timelineWidth}px` }}
-          onClick={handleTimelineClick}
-        >
-          {ticks.map((time) => (
-            <div
-              key={time}
-              className="absolute flex flex-col items-center"
-              style={{ left: `${time * pixelsPerSecond}px` }}
-            >
-              <div className="h-3 w-px bg-border" />
-              <span className="text-[10px] text-muted-foreground">
-                {formatTime(time)}
-              </span>
-            </div>
-          ))}
-          {/* Playhead on ruler */}
-          <div
-            className="absolute top-0 h-full w-0.5 bg-red-500"
-            style={{ left: `${currentTime * pixelsPerSecond}px` }}
-          />
-        </div>
-      </div>
-
-      {/* Tracks Container */}
+      {/* Single scroll container for ruler + tracks */}
       <div
         ref={tracksContainerRef}
         className="flex-1 overflow-auto bg-muted/20"
@@ -665,14 +643,40 @@ function TimelineInner({
           className="relative"
           style={{
             width: `${timelineWidth}px`,
-            minHeight: `${tracks.length * 80}px`,
+            minHeight: `${tracks.length * 80 + 32}px`,
           }}
         >
-          {/* Playhead */}
+          {/* Time Ruler - sticky at top */}
+          <div className="sticky top-0 z-30 h-8 border-b bg-muted/50 cursor-pointer">
+            {ticks.map((time) => (
+              <div
+                key={time}
+                className="absolute flex flex-col items-center"
+                style={{ left: `${time * pixelsPerSecond}px` }}
+              >
+                <div className="h-3 w-px bg-border" />
+                <span className="text-[10px] text-muted-foreground">
+                  {formatTime(time)}
+                </span>
+              </div>
+            ))}
+            {/* Playhead on ruler */}
+            <div
+              className="absolute top-0 h-full w-0.5 bg-red-500"
+              style={{ left: `${currentTime * pixelsPerSecond}px` }}
+            />
+          </div>
+
+          {/* Track lanes */}
           <div
-            className="absolute top-0 bottom-0 z-20 w-0.5 bg-red-500 pointer-events-none"
-            style={{ left: `${currentTime * pixelsPerSecond}px` }}
-          />
+            className="relative"
+            style={{ minHeight: `${tracks.length * 80}px` }}
+          >
+            {/* Playhead */}
+            <div
+              className="absolute top-0 bottom-0 z-20 w-0.5 bg-red-500 pointer-events-none"
+              style={{ left: `${currentTime * pixelsPerSecond}px` }}
+            />
 
           {/* Track lanes */}
           {tracks.map((track, index) => {
@@ -892,12 +896,13 @@ function TimelineInner({
             );
           })}
 
-          {/* Empty state */}
-          {tracks.length === 0 && (
-            <div className="flex h-full min-h-[200px] items-center justify-center text-muted-foreground">
-              No tracks to display
-            </div>
-          )}
+            {/* Empty state */}
+            {tracks.length === 0 && (
+              <div className="flex h-full min-h-[200px] items-center justify-center text-muted-foreground">
+                No tracks to display
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

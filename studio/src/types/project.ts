@@ -16,6 +16,8 @@ export interface Project {
   updated_at: string;
   video_url?: string;
   thumbnail_url?: string;
+  error_message?: string;
+  duration?: number;
 }
 
 export const STATUS_LABELS: Record<ProjectStatus, string> = {

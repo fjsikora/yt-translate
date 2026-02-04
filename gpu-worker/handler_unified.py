@@ -190,6 +190,7 @@ class DubSegmentResult(BaseModel):
     start_time: float = Field(..., description="Start time in seconds")
     end_time: float = Field(..., description="End time in seconds")
     audio_url: str = Field(..., description="URL of synthesized audio segment")
+    tts_duration: float = Field(..., description="Actual TTS audio duration in seconds")
 
 
 class DubResponse(BaseModel):
@@ -2086,7 +2087,17 @@ async def _save_pipeline_results(
 
         logger.info(f"Updated project {project_id} with audio URLs and duration")
 
-        # 2. Create tracks
+        # 2. Create tracks (video, background, vocals, dubbed)
+        video_track = client.table("dub_tracks").insert({
+            "project_id": project_id,
+            "name": "Video",
+            "type": "video",
+            "muted": False,
+            "solo": False,
+            "volume": 1.0,
+            "order_index": 0,
+        }).execute()
+
         background_track = client.table("dub_tracks").insert({
             "project_id": project_id,
             "name": "Background Audio",
@@ -2094,7 +2105,17 @@ async def _save_pipeline_results(
             "muted": False,
             "solo": False,
             "volume": 1.0,
-            "order_index": 0,
+            "order_index": 1,
+        }).execute()
+
+        vocals_track = client.table("dub_tracks").insert({
+            "project_id": project_id,
+            "name": "Original Vocals",
+            "type": "vocals",
+            "muted": True,
+            "solo": False,
+            "volume": 1.0,
+            "order_index": 2,
         }).execute()
 
         dubbed_track = client.table("dub_tracks").insert({
@@ -2104,23 +2125,34 @@ async def _save_pipeline_results(
             "muted": False,
             "solo": False,
             "volume": 1.0,
-            "order_index": 1,
+            "order_index": 3,
         }).execute()
 
+        video_track_id = video_track.data[0]["id"]
         background_track_id = background_track.data[0]["id"]
+        vocals_track_id = vocals_track.data[0]["id"]
         dubbed_track_id = dubbed_track.data[0]["id"]
 
         logger.info(
-            f"Created tracks: background={background_track_id}, "
+            f"Created tracks: video={video_track_id}, "
+            f"background={background_track_id}, "
+            f"vocals={vocals_track_id}, "
             f"dubbed={dubbed_track_id}"
         )
 
-        # 3. Create a single segment for the background track (full duration)
+        # 3. Create single-segment tracks (video, background, vocals)
+        # Video track segment (no audio — controls video playback speed)
+        client.table("dub_segments").insert({
+            "track_id": video_track_id,
+            "start_time": 0.0,
+            "end_time": duration,
+            "speed_factor": 1.0,
+            "order_index": 0,
+        }).execute()
+
+        # Background audio segment (full duration)
         client.table("dub_segments").insert({
             "track_id": background_track_id,
-            "speaker": None,
-            "original_text": None,
-            "translated_text": None,
             "start_time": 0.0,
             "end_time": duration,
             "speed_factor": 1.0,
@@ -2128,26 +2160,44 @@ async def _save_pipeline_results(
             "order_index": 0,
         }).execute()
 
+        # Original vocals segment (full duration, track is muted by default)
+        client.table("dub_segments").insert({
+            "track_id": vocals_track_id,
+            "start_time": 0.0,
+            "end_time": duration,
+            "speed_factor": 1.0,
+            "audio_url": vocals_url,
+            "order_index": 0,
+        }).execute()
+
         # 4. Create segments for the dubbed speech track
+        # Use shift-based layout: each segment uses its natural TTS duration,
+        # subsequent segments shift to avoid overlaps, gaps are preserved.
         if segment_results:
-            segment_rows = [
-                {
+            sorted_results = sorted(segment_results, key=lambda s: s.start_time)
+            cumulative_shift = 0.0
+            segment_rows = []
+            for seg in sorted_results:
+                new_start = seg.start_time + cumulative_shift
+                new_end = new_start + seg.tts_duration
+                original_seg_duration = seg.end_time - seg.start_time
+                cumulative_shift += (seg.tts_duration - original_seg_duration)
+                segment_rows.append({
                     "track_id": dubbed_track_id,
                     "speaker": seg.speaker,
                     "original_text": seg.original_text,
                     "translated_text": seg.translated_text,
-                    "start_time": seg.start_time,
-                    "end_time": seg.end_time,
+                    "start_time": new_start,
+                    "end_time": new_end,
                     "speed_factor": 1.0,
                     "audio_url": seg.audio_url,
                     "order_index": seg.index,
-                }
-                for seg in segment_results
-            ]
+                })
             client.table("dub_segments").insert(segment_rows).execute()
 
         logger.info(
-            f"Created {len(segment_results)} dubbed segments + 1 background segment"
+            f"Created {len(segment_results)} dubbed segments + "
+            f"video/background/vocals segments"
         )
 
     except Exception as e:
@@ -2483,6 +2533,9 @@ async def dub(request: DubRequest) -> DubResponse:
             sf.write(str(segment_path), audio_array, tts_sample_rate)
             synthesized_paths.append(segment_path)
 
+            # Measure actual TTS audio duration
+            tts_duration = len(audio_array) / tts_sample_rate
+
             # Upload segment audio
             segment_url = await _upload_segment_audio(segment_path, project_id, i)
 
@@ -2495,6 +2548,7 @@ async def dub(request: DubRequest) -> DubResponse:
                     start_time=seg["start"],
                     end_time=seg["end"],
                     audio_url=segment_url,
+                    tts_duration=tts_duration,
                 )
             )
 

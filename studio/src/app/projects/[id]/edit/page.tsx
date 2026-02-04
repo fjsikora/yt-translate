@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -16,6 +16,8 @@ import { VideoPlayer, VideoPlayerRef } from "@/components/editor/VideoPlayer";
 import { SegmentDetails } from "@/components/editor/SegmentDetails";
 import { ExportDialog } from "@/components/editor/ExportDialog";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
+import { useAudioEngine } from "@/lib/use-audio-engine";
 import {
   ArrowLeft,
   Play,
@@ -67,11 +69,24 @@ export default function EditorPage({ params }: EditorPageProps) {
   const [duration, setDuration] = useState(0);
   const videoPlayerRef = useRef<VideoPlayerRef>(null);
 
+  // Refs for avoiding stale closures in callbacks
+  const currentTimeRef = useRef(0);
+  const isPlayingRef = useRef(false);
+
   // Timeline state
   const [zoom, setZoom] = useState(1);
   const [tracks, setTracks] = useState<TimelineTrack[]>([]);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [selectedSegment, setSelectedSegment] = useState<TimelineSegment | null>(null);
+
+  // Derive video playback rate from the video track's speed_factor
+  const videoSpeedFactor = useMemo(() => {
+    const videoTrack = tracks.find((t) => t.type === "video");
+    return videoTrack?.segments[0]?.speed_factor ?? 1.0;
+  }, [tracks]);
+
+  // Audio engine for multi-track playback
+  const audioEngine = useAudioEngine(tracks);
 
   // Export dialog state
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
@@ -87,26 +102,48 @@ export default function EditorPage({ params }: EditorPageProps) {
     params.then((p) => setProjectId(p.id));
   }, [params]);
 
-  // Fetch project data
+  // Fetch project data with tracks and segments from Supabase
   const fetchProject = useCallback(async () => {
     if (!projectId) return;
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/projects/${projectId}`);
+      const { data: projectData, error: projectError } = await supabase
+        .from("dub_projects")
+        .select("*")
+        .eq("id", projectId)
+        .single();
 
-      if (!response.ok) {
-        if (response.status === 404) {
+      if (projectError) {
+        if (projectError.code === "PGRST116") {
           throw new Error("Project not found");
         }
-        throw new Error(`Failed to fetch project: ${response.statusText}`);
+        throw new Error(projectError.message);
       }
 
-      const data = await response.json();
-      setProject(data);
-      setTracks(data.tracks || []);
-      if (data.duration) {
-        setDuration(data.duration);
+      // Fetch tracks with their segments
+      const { data: tracksData, error: tracksError } = await supabase
+        .from("dub_tracks")
+        .select("*, segments:dub_segments(*)")
+        .eq("project_id", projectId)
+        .order("order_index");
+
+      if (tracksError) {
+        throw new Error(tracksError.message);
+      }
+
+      // Sort segments within each track by start_time
+      const tracksWithSortedSegments = (tracksData || []).map((track) => ({
+        ...track,
+        segments: (track.segments || []).sort(
+          (a: TimelineSegment, b: TimelineSegment) =>
+            Number(a.start_time) - Number(b.start_time)
+        ),
+      })) as TimelineTrack[];
+
+      setProject(projectData);
+      setTracks(tracksWithSortedSegments);
+      if (projectData.duration) {
+        setDuration(projectData.duration);
       }
       setError(null);
     } catch (err) {
@@ -125,8 +162,15 @@ export default function EditorPage({ params }: EditorPageProps) {
 
   // Video player handlers
   const handleTimeUpdate = useCallback((time: number) => {
+    const prev = currentTimeRef.current;
     setCurrentTime(time);
-  }, []);
+    currentTimeRef.current = time;
+
+    // Detect discontinuous jumps (arrow-key seeks) during playback
+    if (isPlayingRef.current && Math.abs(time - prev) > 0.5) {
+      audioEngine.seek(time);
+    }
+  }, [audioEngine]);
 
   const handleDurationChange = useCallback((newDuration: number) => {
     setDuration(newDuration);
@@ -134,7 +178,14 @@ export default function EditorPage({ params }: EditorPageProps) {
 
   const handlePlayStateChange = useCallback((playing: boolean) => {
     setIsPlaying(playing);
-  }, []);
+    isPlayingRef.current = playing;
+
+    if (playing) {
+      audioEngine.play(currentTimeRef.current);
+    } else {
+      audioEngine.pause();
+    }
+  }, [audioEngine]);
 
   const handlePlayPause = useCallback(() => {
     videoPlayerRef.current?.togglePlayback();
@@ -143,7 +194,9 @@ export default function EditorPage({ params }: EditorPageProps) {
   const handleSeek = useCallback((time: number) => {
     videoPlayerRef.current?.seek(time);
     setCurrentTime(time);
-  }, []);
+    currentTimeRef.current = time;
+    audioEngine.seek(time);
+  }, [audioEngine]);
 
   // Zoom controls
   const handleZoomIn = () => {
@@ -206,25 +259,18 @@ export default function EditorPage({ params }: EditorPageProps) {
     };
   }, []);
 
-  // Save track settings to API
+  // Save track settings to Supabase
   const saveTrackSettings = useCallback(
     async (trackId: string, settings: { muted?: boolean; solo?: boolean; volume?: number }) => {
       startSave();
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        const response = await fetch(`${apiUrl}/api/tracks/${trackId}`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(settings),
-        });
+        const { error } = await supabase
+          .from("dub_tracks")
+          .update(settings)
+          .eq("id", trackId);
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(
-            errorData.detail || `Failed to save track: ${response.statusText}`
-          );
+        if (error) {
+          throw new Error(error.message);
         }
         completeSave(true);
       } catch (err) {
@@ -289,6 +335,11 @@ export default function EditorPage({ params }: EditorPageProps) {
     }, 300);
   }, [saveTrackSettings]);
 
+  // Sync mute/solo/volume to audio engine when tracks change
+  useEffect(() => {
+    audioEngine.updateTrackMuteSolo(tracks);
+  }, [tracks, audioEngine]);
+
   // Segment selection
   const handleSegmentSelect = useCallback((segment: TimelineSegment | null) => {
     setSelectedSegmentId(segment?.id ?? null);
@@ -352,40 +403,32 @@ export default function EditorPage({ params }: EditorPageProps) {
     }
   }, [tracks, selectedSegmentId]);
 
-  // Save segment timing to API (shared by drag-drop and trim operations)
+  // Save segment timing to Supabase (shared by drag-drop and trim operations)
   const saveSegmentTiming = useCallback(
     async (segmentId: string, startTime: number, endTime: number, speedFactor?: number) => {
       startSave();
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        const body: Record<string, number> = {
+        const updates: Record<string, number> = {
           start_time: startTime,
           end_time: endTime,
         };
         if (speedFactor !== undefined) {
-          body.speed_factor = speedFactor;
+          updates.speed_factor = speedFactor;
         }
 
-        const response = await fetch(`${apiUrl}/api/segments/${segmentId}`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-        });
+        const { error } = await supabase
+          .from("dub_segments")
+          .update(updates)
+          .eq("id", segmentId);
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(
-            errorData.detail || `Failed to save segment: ${response.statusText}`
-          );
+        if (error) {
+          throw new Error(error.message);
         }
         completeSave(true);
       } catch (err) {
         console.error("Failed to save segment:", err);
         setError(err instanceof Error ? err.message : "Failed to save segment");
         completeSave(false);
-        // Note: We don't revert since the user can undo manually
       }
     },
     [startSave, completeSave]
@@ -504,23 +547,19 @@ export default function EditorPage({ params }: EditorPageProps) {
     setSelectedSegmentId(null);
     setSelectedSegment(null);
 
-    // Delete from API
+    // Delete from Supabase
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/segments/${selectedSegmentId}`, {
-        method: "DELETE",
-      });
+      const { error } = await supabase
+        .from("dub_segments")
+        .delete()
+        .eq("id", selectedSegmentId);
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          errorData.detail || `Failed to delete segment: ${response.statusText}`
-        );
+      if (error) {
+        throw new Error(error.message);
       }
     } catch (err) {
       console.error("Failed to delete segment:", err);
       setError(err instanceof Error ? err.message : "Failed to delete segment");
-      // Note: Could add rollback here using undo, but for now we just show error
     }
   }, [selectedSegmentId, pushHistory]);
 
@@ -866,7 +905,7 @@ export default function EditorPage({ params }: EditorPageProps) {
           </aside>
 
           {/* Main Editor Area */}
-          <div className="flex flex-1 flex-col">
+          <div className="flex min-w-0 flex-1 flex-col">
             {/* Video Player (50% height) */}
             <div className="flex h-1/2 items-center justify-center border-b bg-black">
               <VideoPlayer
@@ -877,6 +916,8 @@ export default function EditorPage({ params }: EditorPageProps) {
                 onTimeUpdate={handleTimeUpdate}
                 onDurationChange={handleDurationChange}
                 onPlayStateChange={handlePlayStateChange}
+                playbackRate={videoSpeedFactor}
+                muted
                 className="h-full w-full"
               />
             </div>

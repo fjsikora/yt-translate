@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/StatusBadge";
+import { supabase } from "@/lib/supabase";
 import { Project, ProjectStatus } from "@/types/project";
 import {
   ArrowLeft,
@@ -78,17 +79,19 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     if (!projectId) return;
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/projects/${projectId}`);
+      const { data, error: queryError } = await supabase
+        .from("dub_projects")
+        .select("*")
+        .eq("id", projectId)
+        .single();
 
-      if (!response.ok) {
-        if (response.status === 404) {
+      if (queryError) {
+        if (queryError.code === "PGRST116") {
           throw new Error("Project not found");
         }
-        throw new Error(`Failed to fetch project: ${response.statusText}`);
+        throw new Error(queryError.message);
       }
 
-      const data = await response.json();
       setProject(data);
       setError(null);
     } catch (err) {
@@ -123,40 +126,35 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     setIsStartingDub(true);
     setError(null);
 
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/dub`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          video_url: project.video_url,
-          source_lang: project.source_language,
-          target_lang: project.target_language,
-          project_id: project.id,
-        }),
-      });
+    // Set processing state immediately so the UI shows the processing
+    // indicator and polling starts. The backend also sets this in the DB.
+    setProject((prev) =>
+      prev ? { ...prev, status: "processing" as ProjectStatus } : null
+    );
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          errorData.detail || `Failed to start dubbing: ${response.statusText}`
-        );
-      }
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
-      // Update local state to show processing
-      setProject((prev) =>
-        prev ? { ...prev, status: "processing" as ProjectStatus } : null
-      );
-    } catch (err) {
-      console.error("Failed to start dubbing:", err);
-      setError(
-        err instanceof Error ? err.message : "Failed to start dubbing pipeline"
-      );
-    } finally {
-      setIsStartingDub(false);
-    }
+    // Fire-and-forget: the pipeline takes several minutes and the Self-hosted GPU
+    // proxy will timeout (HTTP 524) before it completes. The backend
+    // updates project status in the DB; the 5-second polling loop picks
+    // up "ready" or "error" status automatically.
+    fetch(`${apiUrl}/dub`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        video_url: project.video_url,
+        source_lang: project.source_language,
+        target_lang: project.target_language,
+        project_id: project.id,
+      }),
+    }).catch(() => {
+      // Ignore network/timeout errors — the backend is processing.
+      // Status polling will detect any errors set by the backend.
+    });
+
+    setIsStartingDub(false);
   };
 
   if (isLoading) {

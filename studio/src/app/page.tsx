@@ -4,38 +4,8 @@ import { useState, useEffect } from "react";
 import { ProjectCard } from "@/components/ProjectCard";
 import { NewProjectDialog } from "@/components/NewProjectDialog";
 import { Project } from "@/types/project";
+import { supabase } from "@/lib/supabase";
 import { Film } from "lucide-react";
-
-// Mock data for development - will be replaced with API call once US-013 is complete
-const MOCK_PROJECTS: Project[] = [
-  {
-    id: "1",
-    name: "Product Demo Video",
-    status: "ready",
-    source_language: "en",
-    target_language: "es",
-    created_at: "2026-01-20T10:30:00Z",
-    updated_at: "2026-01-21T14:45:00Z",
-  },
-  {
-    id: "2",
-    name: "Marketing Webinar",
-    status: "processing",
-    source_language: "en",
-    target_language: "fr",
-    created_at: "2026-01-22T09:00:00Z",
-    updated_at: "2026-01-22T09:15:00Z",
-  },
-  {
-    id: "3",
-    name: "Tutorial Series Episode 1",
-    status: "pending",
-    source_language: "en",
-    target_language: "de",
-    created_at: "2026-01-23T08:00:00Z",
-    updated_at: "2026-01-23T08:00:00Z",
-  },
-];
 
 export default function HomePage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -44,14 +14,15 @@ export default function HomePage() {
   const fetchProjects = async () => {
     setIsLoading(true);
     try {
-      // TODO: Replace with actual API call once US-013 is complete
-      // const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/projects`);
-      // const data = await response.json();
-      // setProjects(data);
+      const { data, error } = await supabase
+        .from("dub_projects")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-      // For now, use mock data
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      setProjects(MOCK_PROJECTS);
+      if (error) {
+        throw new Error(error.message);
+      }
+      setProjects(data || []);
     } catch (error) {
       console.error("Failed to fetch projects:", error);
     } finally {

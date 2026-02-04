@@ -10,6 +10,8 @@ export interface VideoPlayerProps {
   onDurationChange: (duration: number) => void;
   onPlayStateChange: (isPlaying: boolean) => void;
   onEnded?: () => void;
+  muted?: boolean;
+  playbackRate?: number;
   className?: string;
 }
 
@@ -39,12 +41,15 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
       onDurationChange,
       onPlayStateChange,
       onEnded,
+      muted,
+      playbackRate,
       className,
     },
     ref
   ) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const isSeeking = useRef(false);
+    const rate = playbackRate ?? 1.0;
 
     // Expose methods to parent via ref
     useImperativeHandle(ref, () => ({
@@ -57,7 +62,7 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
       seek: (time: number) => {
         if (videoRef.current) {
           isSeeking.current = true;
-          videoRef.current.currentTime = time;
+          videoRef.current.currentTime = time * rate;
           // Reset seeking flag after seek completes
           setTimeout(() => {
             isSeeking.current = false;
@@ -75,6 +80,13 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
       },
     }));
 
+    // Apply playback rate to video element
+    useEffect(() => {
+      if (videoRef.current) {
+        videoRef.current.playbackRate = rate;
+      }
+    }, [rate]);
+
     // Sync video playback state with isPlaying prop
     useEffect(() => {
       if (!videoRef.current) return;
@@ -90,36 +102,40 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
     }, [isPlaying, onPlayStateChange]);
 
     // Sync video position with currentTime prop (from timeline seek)
+    // Convert timeline-time → video-time using playback rate
     useEffect(() => {
       if (!videoRef.current || isSeeking.current) return;
 
       const video = videoRef.current;
-      const diff = Math.abs(video.currentTime - currentTime);
+      const videoTime = currentTime * rate;
+      const diff = Math.abs(video.currentTime - videoTime);
 
       // Only seek if difference is significant (> 0.1 seconds)
       // This prevents seeking during normal playback
       if (diff > 0.1) {
         isSeeking.current = true;
-        video.currentTime = currentTime;
+        video.currentTime = videoTime;
         setTimeout(() => {
           isSeeking.current = false;
         }, 100);
       }
-    }, [currentTime]);
+    }, [currentTime, rate]);
 
     // Handle time update from video
+    // Convert video-time → timeline-time using playback rate
     const handleTimeUpdate = useCallback(() => {
       if (videoRef.current && !isSeeking.current) {
-        onTimeUpdate(videoRef.current.currentTime);
+        onTimeUpdate(videoRef.current.currentTime / rate);
       }
-    }, [onTimeUpdate]);
+    }, [onTimeUpdate, rate]);
 
     // Handle metadata loaded (duration available)
+    // Convert video duration to timeline duration using playback rate
     const handleLoadedMetadata = useCallback(() => {
       if (videoRef.current) {
-        onDurationChange(videoRef.current.duration);
+        onDurationChange(videoRef.current.duration / rate);
       }
-    }, [onDurationChange]);
+    }, [onDurationChange, rate]);
 
     // Handle play/pause events from video
     const handlePlay = useCallback(() => {
@@ -163,23 +179,25 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
             break;
 
           case "ArrowLeft":
-            // Seek back 1 second
+            // Seek back 1 second (in timeline-time)
             e.preventDefault();
             if (videoRef.current) {
-              const newTime = Math.max(0, videoRef.current.currentTime - 1);
-              videoRef.current.currentTime = newTime;
-              onTimeUpdate(newTime);
+              const currentTimeline = videoRef.current.currentTime / rate;
+              const newTimeline = Math.max(0, currentTimeline - 1);
+              videoRef.current.currentTime = newTimeline * rate;
+              onTimeUpdate(newTimeline);
             }
             break;
 
           case "ArrowRight":
-            // Seek forward 1 second
+            // Seek forward 1 second (in timeline-time)
             e.preventDefault();
             if (videoRef.current) {
-              const maxTime = videoRef.current.duration || Infinity;
-              const newTime = Math.min(maxTime, videoRef.current.currentTime + 1);
-              videoRef.current.currentTime = newTime;
-              onTimeUpdate(newTime);
+              const currentTimeline = videoRef.current.currentTime / rate;
+              const maxTimeline = (videoRef.current.duration || Infinity) / rate;
+              const newTimeline = Math.min(maxTimeline, currentTimeline + 1);
+              videoRef.current.currentTime = newTimeline * rate;
+              onTimeUpdate(newTimeline);
             }
             break;
         }
@@ -187,7 +205,7 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
 
       window.addEventListener("keydown", handleKeyDown);
       return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [onTimeUpdate]);
+    }, [onTimeUpdate, rate]);
 
     if (!src) {
       return (
@@ -202,15 +220,16 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
         ref={videoRef}
         className={`h-full w-full object-contain ${className || ""}`}
         src={src}
+        muted={muted}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onPlay={handlePlay}
         onPause={handlePause}
         onEnded={handleEnded}
         onSeeked={() => {
-          // Emit time update after seek completes
+          // Emit time update after seek completes (convert video-time → timeline-time)
           if (videoRef.current) {
-            onTimeUpdate(videoRef.current.currentTime);
+            onTimeUpdate(videoRef.current.currentTime / rate);
           }
         }}
         preload="metadata"

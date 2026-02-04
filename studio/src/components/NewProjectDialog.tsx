@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { Plus, Upload, X, FileVideo } from "lucide-react";
-import { uploadVideo } from "@/lib/supabase";
+import { supabase, uploadVideo } from "@/lib/supabase";
 
 const LANGUAGES = [
   { code: "en", name: "English" },
@@ -107,24 +107,19 @@ export function NewProjectDialog({ onProjectCreated }: NewProjectDialogProps) {
         setUploadProgress(progress);
       });
 
-      // Create project via API with pending status
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/projects`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      // Create project in Supabase
+      const { error: insertError } = await supabase
+        .from("dub_projects")
+        .insert({
           name: name.trim(),
           source_language: sourceLanguage,
           target_language: targetLanguage,
           video_url: videoUrl,
           status: "pending",
-        }),
-      });
+        });
 
-      if (!response.ok) {
-        throw new Error(`Failed to create project: ${response.statusText}`);
+      if (insertError) {
+        throw new Error(insertError.message);
       }
 
       // Success - close dialog and reset form
