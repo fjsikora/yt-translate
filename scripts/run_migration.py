@@ -18,7 +18,11 @@ if env_path.exists():
 
 # Supabase database connection details
 # Format: postgresql://postgres:[password]@db.[project-ref].supabase.co:5432/postgres
-SUPABASE_PROJECT_REF = "your-project-ref"
+SUPABASE_PROJECT_REF = os.getenv("SUPABASE_PROJECT_REF", "")
+if not SUPABASE_PROJECT_REF:
+    print("Error: SUPABASE_PROJECT_REF environment variable not set.")
+    print("Find it in Supabase Dashboard > Settings > General > Reference ID")
+    sys.exit(1)
 # Get the database password from Supabase dashboard (Settings > Database > Connection string)
 # For now, we'll use the service role key (which works for some operations)
 # But typically you need the actual DB password
