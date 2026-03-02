@@ -142,6 +142,56 @@ Arabic, Chinese, Danish, Dutch, English, Finnish, French, German, Greek, Hebrew,
 
 ---
 
+
+---
+
+## Dubbing Studio
+
+The studio is a browser-based editor for reviewing and fine-tuning dubbed output before export.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ◀ Back   My Project: english → spanish              ● completed   ↓ Export │
+├──────────────────────────────────────┬──────────────────────────────────────┤
+│                                      │                                      │
+│           VIDEO PLAYER               │        SEGMENT DETAILS               │
+│                                      │                                      │
+│   ┌──────────────────────────────┐   │  Speaker:   SPEAKER_00               │
+│   │                              │   │                                      │
+│   │                              │   │  Original:  "Hello and welcome to    │
+│   │         [video frame]        │   │             today's video."          │
+│   │                              │   │                                      │
+│   └──────────────────────────────┘   │  Dubbed:    "Hola y bienvenidos al   │
+│                                      │             video de hoy."           │
+│   ▶ 0:04.20 ────────────── 2:34.00   │                                      │
+│   ● Mute   🔊 ──────── Volume       │  Time:      0:04.20 → 0:06.80        │
+│   [-]  Zoom  [+]                     │  Duration:  2.60s   Speed: 1.00x     │
+│                                      │                                      │
+├──────────────────────────────────────┴──────────────────────────────────────┤
+│  TIMELINE                                              ◀ ▶ Scroll  Ctrl+Scroll Zoom │
+│                                                                             │
+│  0:00      0:05      0:10      0:15      0:20      0:25      0:30           │
+│  │         │         │         │         │         │         │              │
+│  ══════════════════════════════════════════════════════════  Vocals          │
+│  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  Background     │
+│  ▓▓▓▓▓▓▓▓▓▓▓ ▓▓▓▓▓▓▓▓▓▓▓▓▓ ▓▓▓▓▓▓▓▓▓▓▓▓ ▓▓▓▓▓▓▓▓▓           Dubbed        │
+│              [selected segment ─────────]                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Studio Features
+
+- **Multi-track timeline** — separate lanes for original vocals, background audio, and dubbed speech
+- **Video sync** — video player stays in sync with timeline playhead
+- **Segment editing** — click any dubbed segment to view original and translated text side by side
+- **Trim** — drag segment edges to trim start/end points
+- **Stretch** — `Alt+drag` a segment edge to time-stretch the audio (adjusts playback speed)
+- **Drag to reposition** — move segments along the timeline
+- **Waveform display** — per-segment waveform visualization
+- **Zoom** — `Ctrl+Scroll` or zoom buttons to zoom in/out on the timeline
+- **Mute/Solo** — per-track mute and solo controls
+- **Export** — download the final dubbed video with all edits applied
+
 ## Tech Stack
 
 | Layer | Tech |
