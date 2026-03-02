@@ -1,4 +1,4 @@
-# YouTube Video Translator Dependencies
+# yt-translate dependencies
 
 # Environment
 python-dotenv>=1.0.0
@@ -26,8 +26,5 @@ rich>=13.0.0
 
 # Supabase client (database & storage)
 supabase>=2.0.0
-
-# Payment provider (payments)
-payment-provider>=7.0.0
 
 # System requirement: ffmpeg must be installed separately

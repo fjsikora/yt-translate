@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 AI-powered video dubbing platform: upload a video, select source/target languages, and get a dubbed version with voice-cloned speech.
 
 - **Frontend**: Next.js 15 App Router (`studio/`) — timeline-based dubbing editor with multi-track audio
-- **Backend**: FastAPI on Self-hosted GPU GPU (`self-hosted/handler_unified.py`) — single unified image with all ML models
+- **Backend**: FastAPI (Python) — runs locally on GPU
 - **Database/Storage**: Supabase (PostgreSQL + object storage)
 
 ## Common Commands
@@ -20,10 +20,9 @@ npm run dev          # http://localhost:3000
 npx tsc --noEmit     # type-check
 ```
 
-### Backend (local GPU)
+### Backend
 ```bash
-docker compose up --build   # runs on port 8000
-curl http://localhost:8000/health
+uvicorn yt_translate.api.server:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### CI/CD
