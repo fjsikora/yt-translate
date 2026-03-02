@@ -60,7 +60,7 @@ Backend:  FastAPI + Self-hosted GPU serverless workers
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/your-username/yt-translate.git
+git clone https://github.com/fjsikora/yt-translate.git
 cd yt-translate
 cp .env.example .env
 # Fill in .env with your credentials (see below)
