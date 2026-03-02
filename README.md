@@ -55,41 +55,50 @@ Backend:  FastAPI + Self-hosted GPU serverless workers
 
 ---
 
+## Requirements
+
+### GPU
+
+| Component | VRAM |
+|---|---|
+| Whisper large-v3 | ~2GB |
+| Demucs htdemucs | ~3GB |
+| pyannote.audio 3.1 | ~2GB |
+| Chatterbox TTS | ~4GB |
+| **Total (all models loaded)** | **~12GB minimum, 16GB recommended** |
+
+A 16GB GPU (e.g. RTX 3080/4080, RTX 4000 Ada, A4000) runs the full pipeline comfortably. CPU-only is possible but very slow for anything beyond short clips.
+
+### System
+
+- Python 3.10+
+- ffmpeg (must be installed and on PATH)
+- CUDA 11.8+ (for GPU acceleration)
+
+---
+
 ## Quick Start
 
-There are two ways to run yt-translate depending on your setup.
-
-### Option A: Self-hosted GPU (recommended)
-
-The API server delegates all AI processing to a Self-hosted GPU pod running the unified worker. You need a Self-hosted GPU account and a GPU pod with the worker image deployed.
-
-**1. Deploy the worker pod**
-
-```bash
-cd self-hosted
-docker build -f Dockerfile.unified -t your-registry/yt-translate-worker:latest .
-docker push your-registry/yt-translate-worker:latest
-```
-
-Create a pod in Self-hosted GPU using your image. Copy the pod's HTTP service URL (e.g. `https://{pod-id}-8000.proxy.self-hosted.net`) — this is your `DUBBING_STUDIO_POD_URL`.
-
-**2. Clone and configure**
+**1. Clone and configure**
 
 ```bash
 git clone https://github.com/fjsikora/yt-translate.git
 cd yt-translate
+pip install -r requirements.txt
 cp .env.example .env
-# Set DUBBING_STUDIO_POD_URL, SUPABASE_*, HUGGINGFACE_TOKEN at minimum
 ```
 
-**3. Run the API server**
+Set at minimum in your `.env`:
+- `HUGGINGFACE_TOKEN` — required for pyannote speaker diarization models
+- `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` + `SUPABASE_PROJECT_REF` — for job persistence and file storage
+
+**2. Run the API server**
 
 ```bash
-pip install -r requirements.txt
 uvicorn server:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**4. Run the studio (frontend)**
+**3. Run the studio (frontend)**
 
 ```bash
 cd studio
@@ -100,24 +109,13 @@ npm run dev
 # Open http://localhost:3000
 ```
 
----
-
-### Option B: Local GPU (CLI only)
-
-If you have a capable GPU locally (16GB+ VRAM recommended), you can run the full pipeline as a CLI without Self-hosted GPU.
+**4. Or use the CLI directly**
 
 ```bash
-git clone https://github.com/fjsikora/yt-translate.git
-cd yt-translate
-pip install -r requirements.txt
-cp .env.example .env
-# Set HUGGINGFACE_TOKEN at minimum
-
 python translate.py
-# Follow the interactive prompts: paste a video URL, pick a language
+# Interactive prompts: paste a video URL, pick a target language
+# Output saved to output/
 ```
-
-Output video is saved to the `output/` directory.
 
 ---
 
@@ -139,21 +137,6 @@ Copy `.env.example` to `.env` and fill in your values:
 | `YOUTUBE_COOKIES` | No | Netscape-format cookies (bypass bot detection) |
 
 See `.env.example` for the full list with comments.
-
----
-
-## Self-hosted GPU Deployment
-
-The pipeline runs as a unified worker on Self-hosted GPU. A single pod handles all stages: Whisper, Demucs, pyannote, Chatterbox TTS, and optional local LLM translation.
-
-```bash
-# Build and push the unified worker image
-cd self-hosted
-docker build -f Dockerfile.unified -t your-registry/yt-translate-worker:latest .
-docker push your-registry/yt-translate-worker:latest
-```
-
-Then create a Self-hosted GPU template pointing to your image and set `DUBBING_STUDIO_POD_URL` in your `.env`.
 
 ---
 
@@ -191,7 +174,6 @@ yt-translate/
 │   ├── api/            # FastAPI server + Self-hosted GPU client
 │   └── config/         # Constants and language mappings
 ├── studio/             # Next.js dubbing studio frontend
-├── self-hosted/             # Unified Self-hosted GPU worker Dockerfile
 ├── scripts/            # Database migration utilities
 └── tests/              # Test suite
 ```
