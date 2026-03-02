@@ -134,7 +134,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
 
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
-    // Fire-and-forget: the pipeline takes several minutes and the Self-hosted GPU
+    // Fire-and-forget: the pipeline takes several minutes and the
     // proxy will timeout (HTTP 524) before it completes. The backend
     // updates project status in the DB; the 5-second polling loop picks
     // up "ready" or "error" status automatically.

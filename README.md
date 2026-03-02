@@ -2,7 +2,7 @@
 
 An open source video translation and dubbing studio. Paste a video URL, pick a target language, and get a dubbed video with cloned speaker voices.
 
-**Self-hosted pipeline running on [Self-hosted GPU](https://your-gpu-provider).** No per-minute API costs for transcription or TTS — you pay only for the GPU time you use.
+All AI processing runs locally on your GPU. No per-minute API costs for transcription or TTS.
 
 ---
 
@@ -39,14 +39,13 @@ yt-dlp (download)
     └─► ffmpeg (mix + sync → dubbed video)
 
 Frontend: Next.js dubbing studio (timeline editor, segment review, export)
-Backend:  FastAPI + Self-hosted GPU serverless workers
+Backend:  FastAPI (Python)
 ```
 
 ---
 
 ## Prerequisites
 
-- [Self-hosted GPU](https://your-gpu-provider) account (GPU compute)
 - [Supabase](https://supabase.com) project (database + storage)
 - [HuggingFace](https://huggingface.co) account with access to:
   - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
@@ -95,7 +94,7 @@ Set at minimum in your `.env`:
 **2. Run the API server**
 
 ```bash
-uvicorn server:app --reload --host 0.0.0.0 --port 8000
+uvicorn yt_translate.api.server:app --reload --host 0.0.0.0 --port 8000
 ```
 
 **3. Run the studio (frontend)**
@@ -129,9 +128,6 @@ Copy `.env.example` to `.env` and fill in your values:
 | `SUPABASE_PROJECT_REF` | Yes | Your Supabase project reference ID |
 | `SUPABASE_SERVICE_KEY` | Yes | Supabase service role key |
 | `HUGGINGFACE_TOKEN` | Yes | HuggingFace token (pyannote model access) |
-| `GPU_PROVIDER_API_KEY` | Yes | Self-hosted GPU API key |
-| `DUBBING_STUDIO_POD_URL` | Yes | Self-hosted GPU pod URL for AI processing |
-| `GPU_PROVIDER_TEMPLATE_ID` | No | Self-hosted GPU pod template ID |
 | `REPLICATE_API_TOKEN` | No | Replicate token (alternative TTS/LLM backend) |
 | `OXYLABS_PROXY` | No | Proxy for high-volume YouTube downloads |
 | `YOUTUBE_COOKIES` | No | Netscape-format cookies (bypass bot detection) |
@@ -159,7 +155,6 @@ Arabic, Chinese, Danish, Dutch, English, Finnish, French, German, Greek, Hebrew,
 | Backend | FastAPI (Python) |
 | Frontend | Next.js + Tailwind |
 | Database + Storage | Supabase |
-| GPU compute | Self-hosted GPU |
 
 ---
 
@@ -170,8 +165,7 @@ yt-translate/
 ├── yt_translate/
 │   ├── core/           # Translation pipeline orchestration
 │   ├── processing/     # Audio, LLM, lipsync processing
-│   ├── workers/        # Self-hosted GPU worker handlers (Whisper, Demucs, TTS, etc.)
-│   ├── api/            # FastAPI server + Self-hosted GPU client
+│   ├── api/            # FastAPI server
 │   └── config/         # Constants and language mappings
 ├── studio/             # Next.js dubbing studio frontend
 ├── scripts/            # Database migration utilities

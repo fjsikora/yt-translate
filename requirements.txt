@@ -1,10 +1,9 @@
 # YouTube Video Translator Dependencies
-# Self-hosted architecture using Self-hosted GPU Serverless
 
 # Environment
 python-dotenv>=1.0.0
 
-# HTTP client (for Self-hosted GPU API calls)
+# HTTP client
 httpx>=0.25.0
 
 # Core pipeline

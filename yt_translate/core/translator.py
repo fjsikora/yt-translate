@@ -10,7 +10,7 @@ Translates YouTube videos to other languages using:
 - ffmpeg: Audio/video merging
 
 Provides two interfaces:
-- translate_video(): Programmatic API for Self-hosted GPU handler
+- translate_video(): Programmatic API
 - main(): Interactive CLI with Rich console output
 """
 
@@ -951,7 +951,7 @@ def translate_video(
     Translate a YouTube video to another language.
 
     This is the programmatic API for the translation pipeline, designed to be
-    called by the Self-hosted GPU handler. It works without Rich console output when
+    called programmatically. It works without Rich console output when
     progress_callback is provided.
 
     Args:
