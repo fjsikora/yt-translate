@@ -2,7 +2,7 @@
 
 An open source video translation and dubbing studio. Paste a video URL, pick a target language, and get a dubbed video with cloned speaker voices.
 
-All AI processing runs locally on your GPU. No per-minute API costs for transcription or TTS.
+All AI processing runs locally on your GPU. All models run locally on your hardware.
 
 ---
 
